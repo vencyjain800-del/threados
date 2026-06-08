@@ -1,0 +1,29 @@
+[project]
+name = "threados-worker"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "rq>=1.16.0",
+    "redis>=5.0.4",
+    "sqlalchemy>=2.0.30",
+    "psycopg[binary]>=3.1.19",
+    "pydantic-settings>=2.3.0",
+    "structlog>=24.2.0",
+    "sentry-sdk>=2.5.0",
+    "boto3>=1.34.0",
+    "httpx>=0.27.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.2.0",
+    "ruff>=0.4.7",
+    "mypy>=1.10.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

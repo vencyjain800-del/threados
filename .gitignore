@@ -1,0 +1,43 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+.pnpm-store/
+.turbo/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+dist/
+.pytest_cache/
+
+# Next.js
+.next/
+out/
+
+# Build outputs
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Alembic
+# (migrations ARE committed — only pyc excluded above)
+
+# Secrets (belt-and-suspenders; .env should never be committed)
+*.pem
+*.key
+credentials.json

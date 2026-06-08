@@ -1,0 +1,9 @@
+{
+  "name": "@threados/config",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./tsconfig.json": "./tsconfig.json",
+    "./eslint.js": "./eslint.js"
+  }
+}

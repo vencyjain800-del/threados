@@ -75,25 +75,25 @@ async def test_me_requires_auth(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_me_returns_current_user(client: AsyncClient):
-    signup = await client.post("/auth/signup", json={
+    await client.post("/auth/signup", json={
         "email": "me@example.com",
         "password": "mypassword",
         "brand_name": "My Brand",
     })
-    cookies = signup.cookies
-    resp = await client.get("/auth/me", cookies=cookies)
+    # httpx stores Set-Cookie from the signup response in client.cookies automatically;
+    # no need to pass cookies= explicitly (that API is deprecated in httpx 0.28+).
+    resp = await client.get("/auth/me")
     assert resp.status_code == 200
     assert resp.json()["email"] == "me@example.com"
 
 
 @pytest.mark.asyncio
 async def test_logout_clears_session(client: AsyncClient):
-    signup = await client.post("/auth/signup", json={
+    await client.post("/auth/signup", json={
         "email": "logout@example.com",
         "password": "logoutpass",
         "brand_name": "Brand",
     })
-    cookies = signup.cookies
-    await client.post("/auth/logout", cookies=cookies)
-    resp = await client.get("/auth/me", cookies=cookies)
+    await client.post("/auth/logout")
+    resp = await client.get("/auth/me")
     assert resp.status_code == 401

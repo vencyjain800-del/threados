@@ -43,7 +43,8 @@ from sqlalchemy import text
 from worker.config import settings
 from worker.db.session import worker_session
 from worker.shopify import ShopifyClient, decrypt_token
-from worker.shopify.schemas import ProductRecord
+from worker.shopify.client import _parse_order, _parse_product
+from worker.shopify.schemas import CollectionRecord, ProductRecord
 from worker.shopify.upsert import (
     replace_order_line_items,
     upsert_collections,
@@ -448,3 +449,197 @@ def _sync_inventory(
 
     log.info("sync.inventory.done", brand_id=str(brand_id), inventory_levels=inv_count)
     return inv_count
+
+
+# ── Sprint 2 Phase D: webhook-driven sync ─────────────────────────────────────
+
+def run_webhook_sync(
+    brand_id: str,
+    sync_run_id: str,
+    topic: str,
+    payload_json: str,
+) -> None:
+    """Process a single Shopify webhook event.
+
+    Normalises the URL-slug topic received from the router (``orders-create``)
+    back to the canonical Shopify form (``orders/create``) then routes to the
+    appropriate upsert helper.
+
+    Status transitions: queued → running → succeeded | failed
+
+    Supported topics
+    ----------------
+    products/create, products/update  → upsert product + variants
+    products/delete                   → DELETE product (cascades to variants via FK)
+    collections/create, collections/update → upsert collection
+    orders/create, orders/updated     → upsert order + replace line items
+    inventory_levels/update           → best-effort; skipped without schema migration
+                                        (variants table lacks inventory_item_id column)
+    """
+    _bid = uuid.UUID(brand_id)
+    _rid = uuid.UUID(sync_run_id)
+
+    # Normalise slug → canonical: "orders-create" → "orders/create"
+    canonical_topic = topic.replace("-", "/")
+
+    log.info(
+        "sync.webhook.start",
+        brand_id=brand_id,
+        sync_run_id=sync_run_id,
+        topic=canonical_topic,
+    )
+    _update_sync_run(_rid, status="running", started_at=datetime.now(tz=timezone.utc))
+
+    try:
+        payload = json.loads(payload_json)
+        counts: dict[str, int] = {}
+
+        if canonical_topic in ("products/create", "products/update"):
+            counts = _webhook_upsert_product(_bid, payload)
+
+        elif canonical_topic == "products/delete":
+            counts = _webhook_delete_product(_bid, payload)
+
+        elif canonical_topic in ("collections/create", "collections/update"):
+            counts = _webhook_upsert_collection(_bid, payload)
+
+        elif canonical_topic in ("orders/create", "orders/updated"):
+            counts = _webhook_upsert_order(_bid, payload)
+
+        elif canonical_topic == "inventory_levels/update":
+            counts = _webhook_upsert_inventory(_bid, payload)
+
+        else:
+            log.info(
+                "sync.webhook.unknown_topic",
+                brand_id=brand_id,
+                topic=canonical_topic,
+            )
+
+        _update_sync_run(
+            _rid,
+            status="succeeded",
+            finished_at=datetime.now(tz=timezone.utc),
+            entities=counts,
+        )
+        log.info("sync.webhook.done", brand_id=brand_id, topic=canonical_topic, **counts)
+
+    except Exception as exc:
+        log.exception("sync.webhook.failed", brand_id=brand_id, topic=canonical_topic)
+        _update_sync_run(
+            _rid,
+            status="failed",
+            error=str(exc),
+            finished_at=datetime.now(tz=timezone.utc),
+        )
+        raise
+
+
+# ── Webhook routing helpers ────────────────────────────────────────────────────
+
+def _webhook_upsert_product(brand_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, int]:
+    """Parse a product webhook payload and upsert the product + its variants."""
+    product_rec = _parse_product(payload)
+    with worker_session() as db:
+        p_map = upsert_products(db, brand_id, [product_rec])
+        upsert_variants(db, brand_id, p_map, [product_rec])
+        db.commit()
+    return {"products": 1, "variants": len(product_rec.variants)}
+
+
+def _webhook_delete_product(brand_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, int]:
+    """Delete a product (and cascade-delete its variants) from a webhook payload.
+
+    Shopify sends only ``{"id": <shopify_id>}`` for delete events.
+    Variants are deleted via the ``ON DELETE CASCADE`` FK on ``variants.product_id``.
+    """
+    shopify_id = payload.get("id")
+    if shopify_id is None:
+        log.warning("sync.webhook.delete_product.missing_id")
+        return {"products": 0}
+    with worker_session() as db:
+        db.execute(
+            text("DELETE FROM products WHERE brand_id = :bid AND shopify_id = :sid"),
+            {"bid": str(brand_id), "sid": shopify_id},
+        )
+        db.commit()
+    return {"products": 1}
+
+
+def _webhook_upsert_collection(brand_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, int]:
+    """Parse a collection webhook payload and upsert the collection.
+
+    Smart collections have a ``rules`` key in the payload; all others are custom.
+    The ``collection_type`` field is used for routing only — it is NOT stored in DB
+    (``_collection_row`` omits it), so this detection is informational only.
+    """
+    collection_type = "smart" if "rules" in payload else "custom"
+    rec = CollectionRecord(
+        shopify_id=payload["id"],
+        title=payload.get("title", ""),
+        collection_type=collection_type,
+    )
+    with worker_session() as db:
+        upsert_collections(db, brand_id, [rec])
+        db.commit()
+    return {"collections": 1}
+
+
+def _webhook_upsert_order(brand_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, int]:
+    """Parse an order webhook payload and upsert the order + its line items.
+
+    Line items reference ``variant_shopify_id`` values.  We look these up in the
+    DB to build the ``variant_id_map`` for :func:`replace_order_line_items`.
+    Variants not yet synced are stored with ``variant_id = NULL`` (same behaviour
+    as the backfill pipeline for deleted/unmapped variants).
+    """
+    order_rec = _parse_order(payload)
+
+    # Build variant_id_map from DB for the specific variant shopify_ids in this order
+    variant_shopify_ids = [
+        li.variant_shopify_id
+        for li in order_rec.line_items
+        if li.variant_shopify_id is not None
+    ]
+    variant_id_map: dict[int, uuid.UUID] = {}
+    if variant_shopify_ids:
+        with worker_session() as db:
+            rows = db.execute(
+                text(
+                    "SELECT id, shopify_id FROM variants "
+                    "WHERE brand_id = :bid AND shopify_id = ANY(:sids)"
+                ),
+                {"bid": str(brand_id), "sids": variant_shopify_ids},
+            ).fetchall()
+        variant_id_map = {int(row.shopify_id): row.id for row in rows}
+
+    with worker_session() as db:
+        o_map = upsert_orders(db, brand_id, [order_rec])
+        replace_order_line_items(db, brand_id, o_map, variant_id_map, [order_rec])
+        db.commit()
+    return {"orders": 1, "line_items": len(order_rec.line_items)}
+
+
+def _webhook_upsert_inventory(brand_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, int]:
+    """Best-effort inventory level update from an ``inventory_levels/update`` webhook.
+
+    Current limitation: ``variants`` has no ``inventory_item_id`` column, so the
+    ``inventory_item_id`` from the payload cannot be resolved to an internal variant UUID
+    without a DB query that doesn't exist yet.  A future migration adding
+    ``variants.inventory_item_id`` will enable full webhook-based inventory sync.
+
+    For now we log the event and return ``{"inventory_levels": 0}`` so the SyncRun
+    records the webhook was received without marking it as failed.
+    """
+    inventory_item_id = payload.get("inventory_item_id")
+    location_id = payload.get("location_id")
+    available = payload.get("available")
+    log.info(
+        "sync.webhook.inventory_skipped",
+        brand_id=str(brand_id),
+        inventory_item_id=inventory_item_id,
+        location_id=location_id,
+        available=available,
+        reason="variants.inventory_item_id column not yet migrated",
+    )
+    return {"inventory_levels": 0}

@@ -9,7 +9,9 @@ Only columns that are actively read or written by the worker are declared.
 """
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
+    Date,
     DateTime,
     Integer,
     MetaData,
@@ -101,6 +103,32 @@ inventory_levels = Table(
     Column("location_id", BigInteger, primary_key=True),
     Column("available", Integer, nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+# ── Aggregation tables (written by aggregation.py) ────────────────────────────
+
+sales_daily = Table(
+    "sales_daily",
+    metadata,
+    Column("brand_id", UUID(as_uuid=True), nullable=False),
+    # Composite PK: (variant_id, sale_date)
+    Column("variant_id", UUID(as_uuid=True), primary_key=True),
+    Column("sale_date", Date, primary_key=True),
+    Column("units_sold", Integer, nullable=False),
+    Column("gross_revenue", Numeric(12, 2), nullable=False),
+    Column("avg_discount", Numeric(6, 4), nullable=False),
+    Column("was_in_stock", Boolean, nullable=False),
+    Column("was_on_promo", Boolean, nullable=False),
+)
+
+inventory_snapshots = Table(
+    "inventory_snapshots",
+    metadata,
+    Column("brand_id", UUID(as_uuid=True), nullable=False),
+    # Composite PK: (variant_id, snap_date)
+    Column("variant_id", UUID(as_uuid=True), primary_key=True),
+    Column("snap_date", Date, primary_key=True),
+    Column("available", Integer, nullable=False),
 )
 
 # Read-only tables (only used for SELECT in the worker)

@@ -42,6 +42,7 @@ from sqlalchemy import text
 
 from worker.config import settings
 from worker.db.session import worker_session
+from worker.queues import get_default_queue
 from worker.shopify import ShopifyClient, decrypt_token
 from worker.shopify.client import parse_order, parse_product
 from worker.shopify.schemas import CollectionRecord, InventoryLevelRecord, ProductRecord
@@ -115,6 +116,10 @@ def run_backfill(brand_id: str, sync_run_id: str) -> None:
             entities=counts,
         )
         log.info("sync.backfill.done", brand_id=brand_id, **counts)
+
+        # C4: chain aggregation — runs as a separate job so its failure is
+        # isolated from the backfill's succeeded status.
+        _enqueue_post_sync_aggregation(brand_id)
 
     except Exception as exc:
         log.exception("sync.backfill.failed", brand_id=brand_id)
@@ -198,6 +203,9 @@ def run_incremental(brand_id: str, sync_run_id: str) -> None:
         )
         log.info("sync.incremental.done", brand_id=brand_id, **counts)
 
+        # C4: chain aggregation after successful incremental sync.
+        _enqueue_post_sync_aggregation(brand_id)
+
     except Exception as exc:
         log.exception("sync.incremental.failed", brand_id=brand_id)
         _update_sync_run(
@@ -210,6 +218,30 @@ def run_incremental(brand_id: str, sync_run_id: str) -> None:
 
 
 # ── Private helpers ────────────────────────────────────────────────────────────
+
+def _enqueue_post_sync_aggregation(brand_id: str) -> None:
+    """Enqueue ``run_post_sync_aggregation`` on the default RQ queue.
+
+    Called at the end of a successful backfill or incremental sync so that
+    ``sales_daily`` and ``inventory_snapshots`` are kept up-to-date.
+
+    The enqueue is best-effort: if Redis is unavailable the exception is
+    logged and swallowed so it does not retroactively fail the sync run.
+    """
+    try:
+        q = get_default_queue()
+        q.enqueue(
+            "worker.jobs.aggregation.run_post_sync_aggregation",
+            brand_id,
+        )
+        log.info("sync.aggregation.enqueued", brand_id=brand_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "sync.aggregation.enqueue_failed",
+            brand_id=brand_id,
+            error=str(exc),
+        )
+
 
 def _get_last_success_time(brand_id: uuid.UUID) -> datetime | None:
     """Return the ``finished_at`` of the most recent succeeded sync run.

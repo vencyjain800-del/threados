@@ -1,5 +1,7 @@
+import asyncio
 import json
 import uuid
+from datetime import datetime, timezone
 from typing import Annotated
 
 import redis.asyncio as aioredis
@@ -9,10 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import system_session
-from app.deps.deps import get_redis, require_auth
+from app.deps.deps import get_redis, get_redis_pool, require_auth
 from app.models.audit import AuditLog
 from app.models.shopify import ShopifyConnection, SyncRun, SyncStatus
 from app.models.tenancy import Session as DbSession
+from app.queues import enqueue_webhook_sync
 from app.shopify.crypto import encrypt_token
 from app.shopify.oauth import (
     build_install_url,
@@ -138,11 +141,26 @@ async def connection_status(session: Annotated[DbSession, Depends(require_auth)]
 
 
 @router.post("/webhooks/{topic}")
-async def webhook_receiver(topic: str, request: Request):
-    """HMAC-verified webhook endpoint. Handlers are wired in Sprint 2."""
+async def webhook_receiver(topic: str, request: Request) -> dict[str, bool]:
+    """HMAC-verified webhook endpoint — dispatches sync jobs to the RQ worker.
+
+    Flow
+    ----
+    1. Verify Shopify HMAC signature (raises 401 on failure).
+    2. For ``app-uninstalled``: mark the connection inactive inline, no SyncRun.
+    3. Resolve the brand from ``X-Shopify-Shop-Domain``.  Unknown shops → 200 (silence
+       Shopify retries for uninstalled stores).
+    4. Redis dedup: ``SET webhook:{brand}:{topic}:{id} NX EX 30``.  Duplicate within
+       30 s → 200 without re-enqueueing.
+    5. Create ``SyncRun(kind="webhook", status=queued)``.
+    6. Enqueue ``run_webhook_sync`` on the high-priority RQ queue (via thread pool
+       so the async handler is not blocked by sync Redis I/O).
+    7. Return ``{"received": True}`` immediately (Shopify requires a response within 5 s).
+    """
     body = await verify_webhook_hmac(request)
     shop = request.headers.get("X-Shopify-Shop-Domain", "")
 
+    # ── app/uninstalled ────────────────────────────────────────────────────────
     if topic == "app-uninstalled":
         async with system_session() as db:
             result = await db.execute(
@@ -150,7 +168,56 @@ async def webhook_receiver(topic: str, request: Request):
             )
             conn = result.scalar_one_or_none()
             if conn:
-                from datetime import datetime, timezone
                 conn.uninstalled_at = datetime.now(timezone.utc)
+        return {"received": True}
+
+    # ── Resolve brand from shop domain ─────────────────────────────────────────
+    async with system_session() as db:
+        result = await db.execute(
+            select(ShopifyConnection).where(
+                ShopifyConnection.shop_domain == shop,
+                ShopifyConnection.uninstalled_at.is_(None),
+            )
+        )
+        shopify_conn = result.scalar_one_or_none()
+
+    if shopify_conn is None:
+        # Unknown or uninstalled shop — acknowledge silently to stop Shopify retries
+        return {"received": True}
+
+    brand_id = shopify_conn.brand_id
+
+    # ── Redis dedup ────────────────────────────────────────────────────────────
+    payload = json.loads(body)
+    object_id = str(payload.get("id", "unknown"))
+    dedup_key = f"webhook:{brand_id}:{topic}:{object_id}"
+
+    redis_pool = get_redis_pool()
+    async with aioredis.Redis(connection_pool=redis_pool) as r:
+        is_new = await r.set(dedup_key, "1", nx=True, ex=30)
+
+    if not is_new:
+        # Duplicate delivery within the dedup window — already queued
+        return {"received": True}
+
+    # ── Create SyncRun ─────────────────────────────────────────────────────────
+    async with system_session() as db:
+        sync_run = SyncRun(
+            brand_id=brand_id,
+            kind="webhook",
+            status=SyncStatus.queued,
+        )
+        db.add(sync_run)
+        await db.flush()
+        sync_run_id = str(sync_run.id)
+
+    # ── Enqueue job (non-blocking: sync RQ call runs in thread pool) ───────────
+    await asyncio.to_thread(
+        enqueue_webhook_sync,
+        str(brand_id),
+        sync_run_id,
+        topic,
+        body.decode(),
+    )
 
     return {"received": True}

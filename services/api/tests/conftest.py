@@ -89,6 +89,7 @@ async def create_tables():
             "orders", "order_line_items",
             "inventory_levels", "inventory_snapshots",
             "sales_daily",
+            "forecasts",
         ]
         for table in data_tables:
             await conn.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
@@ -109,6 +110,7 @@ async def create_tables():
             "orders", "order_line_items",
             "inventory_levels", "inventory_snapshots",
             "sales_daily",
+            "forecasts",
         ]
         for table in brand_id_tables:
             await conn.execute(text(f"""

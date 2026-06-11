@@ -10,6 +10,7 @@ from app.config import settings
 from app.routers import auth, health, shopify
 from app.routers import catalogue, inventory, orders
 from app.routers import sync as sync_router
+from app.routers import forecasts as forecasts_router
 
 structlog.configure(
     wrapper_class=structlog.make_filtering_bound_logger(
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(orders.router)
     app.include_router(inventory.router)
     app.include_router(sync_router.router)
+    app.include_router(forecasts_router.router)
 
     return app
 

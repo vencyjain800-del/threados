@@ -18,6 +18,7 @@ from sqlalchemy import (
     Numeric,
     Table,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -129,6 +130,26 @@ inventory_snapshots = Table(
     Column("variant_id", UUID(as_uuid=True), primary_key=True),
     Column("snap_date", Date, primary_key=True),
     Column("available", Integer, nullable=False),
+)
+
+# ── Forecast table (written by forecast.py) ───────────────────────────────────
+
+forecasts = Table(
+    "forecasts",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("brand_id", UUID(as_uuid=True), nullable=False),
+    Column("variant_id", UUID(as_uuid=True), nullable=False),
+    Column("forecast_date", Date, nullable=False),
+    Column("run_date", Date, nullable=False),
+    Column("predicted_units", Numeric(10, 2), nullable=False),
+    Column("lower_bound", Numeric(10, 2), nullable=False),
+    Column("upper_bound", Numeric(10, 2), nullable=False),
+    Column("model_name", Text, nullable=False),
+    UniqueConstraint(
+        "variant_id", "forecast_date", "run_date",
+        name="uq_forecasts_variant_date_run",
+    ),
 )
 
 # Read-only tables (only used for SELECT in the worker)

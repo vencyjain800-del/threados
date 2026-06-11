@@ -3,6 +3,7 @@ from app.models.shopify import ShopifyConnection, SyncRun, SyncStatus
 from app.models.catalogue import Collection, Product, ProductCollection, Variant
 from app.models.orders import Order, OrderLineItem
 from app.models.inventory import InventoryLevel, InventorySnapshot, SalesDaily
+from app.models.forecasts import Forecast
 from app.models.audit import AuditLog
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     "InventoryLevel",
     "InventorySnapshot",
     "SalesDaily",
+    "Forecast",
     "AuditLog",
 ]

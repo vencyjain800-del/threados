@@ -36,6 +36,7 @@ import structlog
 from sqlalchemy import text
 
 from worker.db.session import worker_session
+from worker.queues import get_default_queue
 
 log = structlog.get_logger(__name__)
 
@@ -109,7 +110,59 @@ def run_post_sync_aggregation(brand_id: str) -> dict[str, int]:
     counts.update(run_inventory_snapshot(brand_id))
 
     log.info("aggregation.post_sync.done", brand_id=brand_id, **counts)
+
+    # Chain: enqueue forecast job after aggregation.
+    # Failure here must never propagate back to the caller — the aggregation
+    # itself has already succeeded and its result is committed.
+    _enqueue_forecast(brand_id)
+
     return counts
+
+
+def _enqueue_forecast(brand_id: str) -> None:
+    """Enqueue run_forecast for *brand_id*.
+
+    Wrapped in a broad except so Redis unavailability or serialisation errors
+    do not retroactively fail the aggregation job that called us.
+    """
+    try:
+        q = get_default_queue()
+        q.enqueue("worker.jobs.forecast.run_forecast", brand_id)
+        log.info("forecast.enqueued", brand_id=brand_id)
+    except Exception as exc:
+        log.warning("forecast.enqueue_failed", brand_id=brand_id, error=str(exc))
+
+
+def schedule_nightly_aggregation() -> dict[str, int]:
+    """Fan-out: enqueue run_post_sync_aggregation for every connected brand.
+
+    This is the entry point called by the RQ Scheduler cron at 02:00 UTC.
+    It queries ``shopify_connections`` for all active brands and enqueues an
+    aggregation job for each one.  The aggregation job chains into the
+    forecast job automatically via ``_enqueue_forecast``.
+
+    Returns
+    -------
+    dict with key ``"brands_enqueued"`` → number of brands scheduled.
+    """
+    from sqlalchemy import text as _text  # local import avoids circular at module top
+
+    sql = _text("SELECT DISTINCT brand_id FROM shopify_connections WHERE uninstalled_at IS NULL")
+    brand_ids: list[str] = []
+    with worker_session() as db:
+        rows = db.execute(sql).fetchall()
+        brand_ids = [str(row.brand_id) for row in rows]
+
+    q = get_default_queue()
+    for bid in brand_ids:
+        try:
+            q.enqueue("worker.jobs.aggregation.run_post_sync_aggregation", bid)
+            log.info("nightly_aggregation.enqueued", brand_id=bid)
+        except Exception as exc:
+            log.warning("nightly_aggregation.enqueue_failed", brand_id=bid, error=str(exc))
+
+    log.info("nightly_aggregation.done", brands_enqueued=len(brand_ids))
+    return {"brands_enqueued": len(brand_ids)}
 
 
 # ── Private SQL helpers ────────────────────────────────────────────────────────

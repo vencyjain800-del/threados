@@ -110,3 +110,21 @@ def enqueue_deregister_schedule(brand_id: str) -> None:
     conn = _get_sync_redis()
     q = Queue("default", connection=conn)
     q.enqueue("worker.jobs.scheduling.deregister_brand_schedule", brand_id)
+
+
+def enqueue_incremental(brand_id: str, sync_run_id: str) -> None:
+    """Enqueue ``run_incremental`` on the default RQ queue.
+
+    Called by the ``POST /sync/trigger`` endpoint to kick off an on-demand
+    incremental sync outside the regular scheduled cadence.
+
+    Parameters
+    ----------
+    brand_id:
+        String UUID of the brand to sync.
+    sync_run_id:
+        String UUID of the ``SyncRun`` row already created by the API handler.
+    """
+    conn = _get_sync_redis()
+    q = Queue("default", connection=conn)
+    q.enqueue("worker.jobs.sync.run_incremental", brand_id, sync_run_id)

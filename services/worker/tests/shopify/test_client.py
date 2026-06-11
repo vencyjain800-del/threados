@@ -387,3 +387,44 @@ def test_rate_limit_exhausted(httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyP
 
     with make_client() as client, pytest.raises(ShopifyRateLimitError):
         list(client.iter_products())
+
+
+# ── updated_at_min filtering (Phase C) ────────────────────────────────────────
+
+def test_iter_custom_collections_updated_at_min(httpx_mock: HTTPXMock) -> None:
+    """updated_at_min is forwarded as a query param for custom collections."""
+    since = datetime(2024, 5, 1, tzinfo=timezone.utc)
+    httpx_mock.add_response(json={"custom_collections": []})
+
+    with make_client() as client:
+        list(client.iter_custom_collections(updated_at_min=since))
+
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert "updated_at_min" in str(request.url)
+
+
+def test_iter_smart_collections_updated_at_min(httpx_mock: HTTPXMock) -> None:
+    """updated_at_min is forwarded as a query param for smart collections."""
+    since = datetime(2024, 5, 1, tzinfo=timezone.utc)
+    httpx_mock.add_response(json={"smart_collections": []})
+
+    with make_client() as client:
+        list(client.iter_smart_collections(updated_at_min=since))
+
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert "updated_at_min" in str(request.url)
+
+
+def test_iter_orders_updated_at_min(httpx_mock: HTTPXMock) -> None:
+    """updated_at_min is forwarded as a query param for orders."""
+    since = datetime(2024, 5, 1, tzinfo=timezone.utc)
+    httpx_mock.add_response(json={"orders": []})
+
+    with make_client() as client:
+        list(client.iter_orders(updated_at_min=since))
+
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert "updated_at_min" in str(request.url)

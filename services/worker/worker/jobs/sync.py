@@ -3,17 +3,32 @@ Shopify sync jobs — Sprint 2.
 
 run_backfill:    Full historical backfill (products, variants, collections,
                  product-collection memberships, orders, order line items,
-                 inventory levels).
+                 inventory levels).  Passes ``updated_at_min=None`` to every
+                 sync helper → no date filter → fetches all data.
 
-run_incremental: Incremental delta sync — pull changes since last successful
-                 run. Implemented in Sprint 2 Phase C.
+run_incremental: Incremental delta sync — pulls only records updated since the
+                 most recent succeeded sync run for the brand.
 
-Excluded from Phase B
----------------------
+                 * Products, variants: ``updated_at_min`` filter via Shopify API.
+                 * Collections (custom + smart): ``updated_at_min`` filter.
+                 * Product-collection memberships: re-synced for changed products
+                   only (via the ``product_id_map`` built from changed products).
+                 * Orders + line items: ``updated_at_min`` filter.
+                 * Inventory levels: synced only for variants fetched this run.
+                   Note — Shopify's inventory API has no ``updated_at_min`` filter
+                   and ``inventory_item_id`` is not persisted in the DB.  A future
+                   migration adding ``variants.inventory_item_id`` will enable full
+                   incremental inventory sync.
+
+                 When no prior succeeded run exists (first incremental after a
+                 failed backfill, or an operator-triggered incremental), behaves
+                 like a full backfill (``since=None`` → no API filters applied).
+
+Excluded from Phase B / C
+--------------------------
 * sales_daily aggregation
 * inventory_snapshots
 * webhook registration / handling
-* incremental delta logic
 """
 from __future__ import annotations
 
@@ -112,12 +127,108 @@ def run_backfill(brand_id: str, sync_run_id: str) -> None:
 
 
 def run_incremental(brand_id: str, sync_run_id: str) -> None:
-    """Incremental delta sync — pull changes since last successful run."""
-    log.info("sync.incremental.stub", brand_id=brand_id, sync_run_id=sync_run_id)
-    raise NotImplementedError("Incremental sync is implemented in Sprint 2 Phase C")
+    """Incremental delta sync — pull only records updated since the last success.
+
+    Queries ``sync_runs`` for the most recent ``succeeded`` run for this brand
+    and uses its ``finished_at`` as the ``updated_at_min`` filter for products,
+    collections, and orders.  If no prior succeeded run exists the sync falls
+    back to a full re-fetch (no date filter), matching backfill behaviour.
+
+    Status transitions: queued → running → succeeded | failed
+    """
+    _bid = uuid.UUID(brand_id)
+    _rid = uuid.UUID(sync_run_id)
+
+    # Determine cut-off *before* marking as running so the timestamp is stable
+    since = _get_last_success_time(_bid)
+    log.info(
+        "sync.incremental.start",
+        brand_id=brand_id,
+        sync_run_id=sync_run_id,
+        since=since.isoformat() if since else None,
+    )
+
+    conn_info = _load_connection(_bid)
+    if conn_info is None:
+        raise RuntimeError(f"No ShopifyConnection for brand {brand_id}")
+
+    _update_sync_run(_rid, status="running", started_at=datetime.now(tz=timezone.utc))
+
+    counts: dict[str, int] = {}
+    try:
+        access_token = decrypt_token(conn_info["access_token_enc"])
+
+        with ShopifyClient(
+            shop=conn_info["shop_domain"],
+            access_token=access_token,
+            api_version=settings.shopify_api_version,
+        ) as client:
+            # Phase 1: products + variants changed since last sync
+            variant_id_map, inv_item_map, p_count, v_count, product_id_map = (
+                _sync_products(_bid, client, updated_at_min=since)
+            )
+            counts["products"] = p_count
+            counts["variants"] = v_count
+
+            # Phase 2: collections changed since last sync
+            collection_id_map, c_count = _sync_collections(_bid, client, updated_at_min=since)
+            counts["collections"] = c_count
+
+            # Phase 3: collection memberships for changed products only
+            # (product_id_map contains only changed products; upsert_product_collections
+            # silently skips records not in the map → touches only affected products)
+            _sync_product_collections(_bid, client, product_id_map, collection_id_map)
+
+            # Phase 4: orders updated since last sync (new + status-changed orders)
+            counts["orders"] = _sync_orders(_bid, client, variant_id_map, updated_at_min=since)
+
+            # Phase 5: inventory for variants fetched this run
+            # Limitation: Shopify has no updated_at_min for inventory levels and
+            # inventory_item_id is not stored in the DB.  Only variants touched
+            # in Phase 1 are covered.  Full inventory accuracy requires either
+            # a DB migration (add variants.inventory_item_id) or webhooks.
+            counts["inventory_levels"] = _sync_inventory(_bid, client, inv_item_map)
+
+        _update_sync_run(
+            _rid,
+            status="succeeded",
+            finished_at=datetime.now(tz=timezone.utc),
+            entities=counts,
+        )
+        log.info("sync.incremental.done", brand_id=brand_id, **counts)
+
+    except Exception as exc:
+        log.exception("sync.incremental.failed", brand_id=brand_id)
+        _update_sync_run(
+            _rid,
+            status="failed",
+            error=str(exc),
+            finished_at=datetime.now(tz=timezone.utc),
+        )
+        raise
 
 
 # ── Private helpers ────────────────────────────────────────────────────────────
+
+def _get_last_success_time(brand_id: uuid.UUID) -> datetime | None:
+    """Return the ``finished_at`` of the most recent succeeded sync run.
+
+    Used by :func:`run_incremental` to determine the ``updated_at_min`` cut-off.
+    Returns ``None`` when no succeeded run exists (triggers full re-fetch).
+    """
+    with worker_session() as db:
+        row = db.execute(
+            text(
+                "SELECT finished_at FROM sync_runs "
+                "WHERE brand_id = :bid AND status = 'succeeded' "
+                "ORDER BY finished_at DESC LIMIT 1"
+            ),
+            {"bid": str(brand_id)},
+        ).one_or_none()
+    if row is None or row.finished_at is None:
+        return None
+    return row.finished_at
+
 
 def _load_connection(brand_id: uuid.UUID) -> dict[str, Any] | None:
     """Load ShopifyConnection data for a brand. Returns None if not connected."""
@@ -177,8 +288,16 @@ def _update_sync_run(
 def _sync_products(
     brand_id: uuid.UUID,
     client: ShopifyClient,
+    *,
+    updated_at_min: datetime | None = None,
 ) -> tuple[dict[int, uuid.UUID], dict[int, uuid.UUID], int, int, dict[int, uuid.UUID]]:
-    """Sync all products and their embedded variants.
+    """Sync products and their embedded variants.
+
+    Parameters
+    ----------
+    updated_at_min:
+        If set, only products updated at or after this datetime are fetched
+        (incremental mode).  ``None`` fetches all products (backfill mode).
 
     Returns:
         variant_id_map:  {shopify_variant_id → internal variant UUID}
@@ -194,7 +313,7 @@ def _sync_products(
     product_count = 0
     variant_count = 0
 
-    for page in client.iter_products():
+    for page in client.iter_products(updated_at_min=updated_at_min):
         with worker_session() as db:
             p_map = upsert_products(db, brand_id, page)
             v_map = upsert_variants(db, brand_id, p_map, page)
@@ -229,8 +348,15 @@ def _sync_products(
 def _sync_collections(
     brand_id: uuid.UUID,
     client: ShopifyClient,
+    *,
+    updated_at_min: datetime | None = None,
 ) -> tuple[dict[int, uuid.UUID], int]:
     """Sync custom and smart collections.
+
+    Parameters
+    ----------
+    updated_at_min:
+        If set, only collections updated since this datetime are fetched.
 
     Returns:
         collection_id_map: {shopify_collection_id → internal UUID}
@@ -239,14 +365,14 @@ def _sync_collections(
     collection_id_map: dict[int, uuid.UUID] = {}
     count = 0
 
-    for page in client.iter_custom_collections():
+    for page in client.iter_custom_collections(updated_at_min=updated_at_min):
         with worker_session() as db:
             c_map = upsert_collections(db, brand_id, page)
             db.commit()
         collection_id_map.update(c_map)
         count += len(page)
 
-    for page in client.iter_smart_collections():
+    for page in client.iter_smart_collections(updated_at_min=updated_at_min):
         with worker_session() as db:
             c_map = upsert_collections(db, brand_id, page)
             db.commit()
@@ -274,11 +400,22 @@ def _sync_orders(
     brand_id: uuid.UUID,
     client: ShopifyClient,
     variant_id_map: dict[int, uuid.UUID],
+    *,
+    updated_at_min: datetime | None = None,
 ) -> int:
-    """Sync all orders and their line items. Returns total order count."""
+    """Sync orders and their line items.
+
+    Parameters
+    ----------
+    updated_at_min:
+        If set, only orders *updated* since this datetime are fetched.  Catches
+        both new orders and orders whose status changed (paid, fulfilled, refunded).
+
+    Returns total order count.
+    """
     order_count = 0
 
-    for page in client.iter_orders():
+    for page in client.iter_orders(updated_at_min=updated_at_min):
         with worker_session() as db:
             o_map = upsert_orders(db, brand_id, page)
             replace_order_line_items(db, brand_id, o_map, variant_id_map, page)

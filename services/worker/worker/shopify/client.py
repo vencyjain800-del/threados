@@ -191,9 +191,21 @@ class ShopifyClient:
 
     # ── Collections ────────────────────────────────────────────────────────────
 
-    def iter_custom_collections(self) -> Iterator[list[CollectionRecord]]:
-        """Yield pages of manually curated collections."""
+    def iter_custom_collections(
+        self,
+        *,
+        updated_at_min: datetime | None = None,
+    ) -> Iterator[list[CollectionRecord]]:
+        """Yield pages of manually curated collections.
+
+        Parameters
+        ----------
+        updated_at_min:
+            If set, only collections updated at or after this datetime are returned.
+        """
         params: dict[str, Any] = {"limit": PAGE_SIZE, "fields": "id,title"}
+        if updated_at_min:
+            params["updated_at_min"] = updated_at_min.isoformat()
         for page in self._paginate(
             f"{self._base}/custom_collections.json", "custom_collections", params
         ):
@@ -202,9 +214,21 @@ class ShopifyClient:
                 for c in page
             ]
 
-    def iter_smart_collections(self) -> Iterator[list[CollectionRecord]]:
-        """Yield pages of rule-based (smart) collections."""
+    def iter_smart_collections(
+        self,
+        *,
+        updated_at_min: datetime | None = None,
+    ) -> Iterator[list[CollectionRecord]]:
+        """Yield pages of rule-based (smart) collections.
+
+        Parameters
+        ----------
+        updated_at_min:
+            If set, only collections updated at or after this datetime are returned.
+        """
         params: dict[str, Any] = {"limit": PAGE_SIZE, "fields": "id,title"}
+        if updated_at_min:
+            params["updated_at_min"] = updated_at_min.isoformat()
         for page in self._paginate(
             f"{self._base}/smart_collections.json", "smart_collections", params
         ):
@@ -235,6 +259,7 @@ class ShopifyClient:
         self,
         *,
         created_at_min: datetime | None = None,
+        updated_at_min: datetime | None = None,
         status: str = "any",
     ) -> Iterator[list[OrderRecord]]:
         """Yield pages of orders.
@@ -242,7 +267,11 @@ class ShopifyClient:
         Parameters
         ----------
         created_at_min:
-            Filter to orders created at or after this datetime.
+            Filter to orders *created* at or after this datetime.
+        updated_at_min:
+            Filter to orders *updated* at or after this datetime.  Catches both
+            new orders and orders whose status changed (payment captured, fulfilled,
+            refunded) since the last sync.  Preferred for incremental runs.
         status:
             ``"any"`` (default) returns all orders including closed/cancelled.
         """
@@ -256,6 +285,8 @@ class ShopifyClient:
         }
         if created_at_min:
             params["created_at_min"] = created_at_min.isoformat()
+        if updated_at_min:
+            params["updated_at_min"] = updated_at_min.isoformat()
         for page in self._paginate(f"{self._base}/orders.json", "orders", params):
             yield [_parse_order(o) for o in page]
 

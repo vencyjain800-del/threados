@@ -18,7 +18,6 @@ from decimal import Decimal
 from typing import Any
 
 import structlog
-from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -77,6 +76,9 @@ def _variant_row(
         "option_size": rec.option_size,
         "price": rec.price,
         "barcode": rec.barcode,
+        # Added migration 002: links this variant to the Shopify inventory item.
+        # Required for resolving inventory_levels/update webhook payloads.
+        "inventory_item_id": rec.inventory_item_id,
     }
 
 
@@ -199,6 +201,8 @@ def upsert_variants(
             "option_size": stmt.excluded.option_size,
             "price": stmt.excluded.price,
             "barcode": stmt.excluded.barcode,
+            # Keep inventory_item_id in sync — Shopify can reassign it (rare but possible)
+            "inventory_item_id": stmt.excluded.inventory_item_id,
         },
     ).returning(variants.c.id, variants.c.shopify_id)
     result = session.execute(stmt)
@@ -300,12 +304,14 @@ def replace_order_line_items(
 
     Returns total line items inserted.
     """
-    order_uuids = [str(uid) for uid in order_id_map.values()]
+    order_uuids = list(order_id_map.values())
     if order_uuids:
-        # Build safe IN clause (UUIDs are generated internally, no user input)
-        in_clause = ", ".join(f"'{uid}'" for uid in order_uuids)
+        # Use SQLAlchemy Core DELETE — avoids f-string SQL construction.
+        # in_() accepts a list of UUIDs directly; SQLAlchemy renders a safe bind parameter.
         session.execute(
-            text(f"DELETE FROM order_line_items WHERE order_id IN ({in_clause})")
+            order_line_items.delete().where(
+                order_line_items.c.order_id.in_(order_uuids)
+            )
         )
 
     rows: list[dict[str, Any]] = []

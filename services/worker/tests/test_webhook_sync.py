@@ -253,17 +253,60 @@ def test_orders_updated_calls_upsert_order() -> None:
     _assert_succeeded(mock_update)
 
 
-def test_inventory_levels_update_skips_gracefully() -> None:
-    """inventory_levels/update is acknowledged without failing (no migration yet)."""
+def test_inventory_levels_update_variant_not_found() -> None:
+    """inventory_levels/update returns 0 levels when variant cannot be resolved.
+
+    This simulates the case where the brand's backfill has not yet populated
+    ``variants.inventory_item_id``, or the variant was deleted.
+    """
     mock_update = MagicMock()
-    with patch("worker.jobs.sync._update_sync_run", mock_update):
+    # DB returns None — variant not found by inventory_item_id
+    db = _make_db_session()
+    db.__enter__.return_value.execute.return_value.one_or_none.return_value = None
+
+    with (
+        patch("worker.jobs.sync.worker_session", return_value=db),
+        patch("worker.jobs.sync._update_sync_run", mock_update),
+    ):
         from worker.jobs.sync import run_webhook_sync
         run_webhook_sync(BRAND_STR, RUN_STR, "inventory_levels-update", json.dumps(_INVENTORY_PAYLOAD))
 
     _assert_succeeded(mock_update)
-    # entities should contain inventory_levels: 0
     succeeded_call = _get_succeeded_call(mock_update)
     assert succeeded_call.kwargs.get("entities", {}).get("inventory_levels") == 0
+
+
+def test_inventory_levels_update_resolves_and_upserts() -> None:
+    """inventory_levels/update upserts when variant is found by inventory_item_id."""
+    mock_update = MagicMock()
+    variant_uuid = uuid.uuid4()
+
+    # First DB call: SELECT variant by inventory_item_id → returns a row
+    db_lookup = _make_db_session()
+    found_row = MagicMock()
+    found_row.id = variant_uuid
+    db_lookup.__enter__.return_value.execute.return_value.one_or_none.return_value = found_row
+
+    # Second DB call: upsert_inventory_levels session
+    db_upsert = _make_db_session()
+
+    session_iter = iter([db_lookup, db_upsert])
+
+    def _next_session():
+        return next(session_iter, _make_db_session())
+
+    with (
+        patch("worker.jobs.sync.worker_session", side_effect=_next_session),
+        patch("worker.jobs.sync._update_sync_run", mock_update),
+        patch("worker.jobs.sync.upsert_inventory_levels", return_value=1) as mock_uil,
+    ):
+        from worker.jobs.sync import run_webhook_sync
+        run_webhook_sync(BRAND_STR, RUN_STR, "inventory_levels-update", json.dumps(_INVENTORY_PAYLOAD))
+
+    mock_uil.assert_called_once()
+    _assert_succeeded(mock_update)
+    succeeded_call = _get_succeeded_call(mock_update)
+    assert succeeded_call.kwargs.get("entities", {}).get("inventory_levels") == 1
 
 
 def test_unknown_topic_succeeds_with_empty_counts() -> None:

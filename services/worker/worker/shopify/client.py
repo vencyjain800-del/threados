@@ -187,7 +187,7 @@ class ShopifyClient:
         if updated_at_min:
             params["updated_at_min"] = updated_at_min.isoformat()
         for page in self._paginate(f"{self._base}/products.json", "products", params):
-            yield [_parse_product(p) for p in page]
+            yield [parse_product(p) for p in page]
 
     # ── Collections ────────────────────────────────────────────────────────────
 
@@ -288,7 +288,7 @@ class ShopifyClient:
         if updated_at_min:
             params["updated_at_min"] = updated_at_min.isoformat()
         for page in self._paginate(f"{self._base}/orders.json", "orders", params):
-            yield [_parse_order(o) for o in page]
+            yield [parse_order(o) for o in page]
 
     # ── Inventory ──────────────────────────────────────────────────────────────
 
@@ -342,7 +342,7 @@ def _option_position_map(options: list[dict[str, Any]]) -> dict[int, str]:
     return {opt["position"]: opt["name"].lower() for opt in options}
 
 
-def _parse_variant(
+def parse_variant(
     v: dict[str, Any],
     product_shopify_id: int,
     option_map: dict[int, str],
@@ -369,9 +369,9 @@ def _parse_variant(
     )
 
 
-def _parse_product(p: dict[str, Any]) -> ProductRecord:
+def parse_product(p: dict[str, Any]) -> ProductRecord:
     option_map = _option_position_map(p.get("options", []))
-    variants = [_parse_variant(v, p["id"], option_map) for v in p.get("variants", [])]
+    variants = [parse_variant(v, p["id"], option_map) for v in p.get("variants", [])]
     raw_created = p.get("created_at")
     return ProductRecord(
         shopify_id=p["id"],
@@ -384,7 +384,7 @@ def _parse_product(p: dict[str, Any]) -> ProductRecord:
     )
 
 
-def _parse_order(o: dict[str, Any]) -> OrderRecord:
+def parse_order(o: dict[str, Any]) -> OrderRecord:
     line_items = [
         OrderLineItemRecord(
             shopify_id=li["id"],

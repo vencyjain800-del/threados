@@ -47,6 +47,9 @@ variants = Table(
     Column("option_size", Text),
     Column("price", Numeric(12, 2)),
     Column("barcode", Text),
+    # Added in migration 002: links a variant to its Shopify inventory tracking record.
+    # Populated by the worker upsert; used to resolve inventory_levels/update webhooks.
+    Column("inventory_item_id", BigInteger, nullable=True),
 )
 
 collections = Table(

@@ -287,10 +287,16 @@ async def test_product_update_enqueues(
 async def test_app_uninstalled_no_syncrun(
     client: AsyncClient,
     mock_verify_hmac_ok: None,
+    mock_to_thread: MagicMock,
 ) -> None:
-    """app-uninstalled: sets uninstalled_at, returns 200, no SyncRun or enqueue."""
+    """app-uninstalled: sets uninstalled_at, returns 200, no SyncRun.
+
+    A schedule deregistration job IS enqueued via asyncio.to_thread, but
+    enqueue_webhook_sync (for data sync) must NOT be called.
+    """
     shopify_conn = MagicMock()
     shopify_conn.uninstalled_at = None
+    shopify_conn.brand_id = BRAND_ID
 
     @asynccontextmanager
     async def _system_session():
@@ -302,18 +308,21 @@ async def test_app_uninstalled_no_syncrun(
 
     with patch("app.routers.shopify.system_session", _system_session):
         with patch("app.routers.shopify.enqueue_webhook_sync") as mock_enq:
-            resp = await client.post(
-                "/shopify/webhooks/app-uninstalled",
-                content=b"{}",
-                headers=_make_webhook_request_headers(),
-            )
+            with patch("app.routers.shopify.enqueue_deregister_schedule") as mock_dereg:
+                resp = await client.post(
+                    "/shopify/webhooks/app-uninstalled",
+                    content=b"{}",
+                    headers=_make_webhook_request_headers(),
+                )
 
     assert resp.status_code == 200
     assert resp.json() == {"received": True}
-    # uninstalled_at was set
+    # uninstalled_at was set on the connection
     assert shopify_conn.uninstalled_at is not None
-    # No job enqueued
+    # No webhook-sync job enqueued
     mock_enq.assert_not_called()
+    # Schedule deregistration was enqueued for this brand
+    mock_dereg.assert_called_once_with(str(BRAND_ID))
 
 
 async def test_unknown_shop_returns_200(

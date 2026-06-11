@@ -43,8 +43,8 @@ from sqlalchemy import text
 from worker.config import settings
 from worker.db.session import worker_session
 from worker.shopify import ShopifyClient, decrypt_token
-from worker.shopify.client import _parse_order, _parse_product
-from worker.shopify.schemas import CollectionRecord, ProductRecord
+from worker.shopify.client import parse_order, parse_product
+from worker.shopify.schemas import CollectionRecord, InventoryLevelRecord, ProductRecord
 from worker.shopify.upsert import (
     replace_order_line_items,
     upsert_collections,
@@ -539,7 +539,7 @@ def run_webhook_sync(
 
 def _webhook_upsert_product(brand_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, int]:
     """Parse a product webhook payload and upsert the product + its variants."""
-    product_rec = _parse_product(payload)
+    product_rec = parse_product(payload)
     with worker_session() as db:
         p_map = upsert_products(db, brand_id, [product_rec])
         upsert_variants(db, brand_id, p_map, [product_rec])
@@ -593,7 +593,7 @@ def _webhook_upsert_order(brand_id: uuid.UUID, payload: dict[str, Any]) -> dict[
     Variants not yet synced are stored with ``variant_id = NULL`` (same behaviour
     as the backfill pipeline for deleted/unmapped variants).
     """
-    order_rec = _parse_order(payload)
+    order_rec = parse_order(payload)
 
     # Build variant_id_map from DB for the specific variant shopify_ids in this order
     variant_shopify_ids = [
@@ -621,25 +621,64 @@ def _webhook_upsert_order(brand_id: uuid.UUID, payload: dict[str, Any]) -> dict[
 
 
 def _webhook_upsert_inventory(brand_id: uuid.UUID, payload: dict[str, Any]) -> dict[str, int]:
-    """Best-effort inventory level update from an ``inventory_levels/update`` webhook.
+    """Update a single inventory level from an ``inventory_levels/update`` webhook.
 
-    Current limitation: ``variants`` has no ``inventory_item_id`` column, so the
-    ``inventory_item_id`` from the payload cannot be resolved to an internal variant UUID
-    without a DB query that doesn't exist yet.  A future migration adding
-    ``variants.inventory_item_id`` will enable full webhook-based inventory sync.
+    Resolves ``inventory_item_id`` → internal variant UUID using the
+    ``variants.inventory_item_id`` column (added in migration 002), then calls
+    :func:`upsert_inventory_levels` to write the new ``available`` quantity.
 
-    For now we log the event and return ``{"inventory_levels": 0}`` so the SyncRun
-    records the webhook was received without marking it as failed.
+    Returns ``{"inventory_levels": 0}`` if the variant cannot be resolved (e.g.
+    the variant was deleted, or the brand's backfill hasn't run yet to populate
+    the ``inventory_item_id`` column).
     """
     inventory_item_id = payload.get("inventory_item_id")
     location_id = payload.get("location_id")
-    available = payload.get("available")
+    available = payload.get("available", 0)
+
+    if inventory_item_id is None or location_id is None:
+        log.warning(
+            "sync.webhook.inventory.missing_fields",
+            brand_id=str(brand_id),
+            inventory_item_id=inventory_item_id,
+            location_id=location_id,
+        )
+        return {"inventory_levels": 0}
+
+    # Resolve inventory_item_id → internal variant UUID
+    with worker_session() as db:
+        row = db.execute(
+            text(
+                "SELECT id FROM variants "
+                "WHERE brand_id = :bid AND inventory_item_id = :iid"
+            ),
+            {"bid": str(brand_id), "iid": inventory_item_id},
+        ).one_or_none()
+
+    if row is None:
+        log.info(
+            "sync.webhook.inventory.variant_not_found",
+            brand_id=str(brand_id),
+            inventory_item_id=inventory_item_id,
+            reason="variant not yet synced or inventory_item_id column not populated",
+        )
+        return {"inventory_levels": 0}
+
+    record = InventoryLevelRecord(
+        inventory_item_id=inventory_item_id,
+        location_id=location_id,
+        available=available if available is not None else 0,
+    )
+    inv_item_map = {inventory_item_id: row.id}
+
+    with worker_session() as db:
+        n = upsert_inventory_levels(db, brand_id, inv_item_map, [record])
+        db.commit()
+
     log.info(
-        "sync.webhook.inventory_skipped",
+        "sync.webhook.inventory.upserted",
         brand_id=str(brand_id),
         inventory_item_id=inventory_item_id,
         location_id=location_id,
         available=available,
-        reason="variants.inventory_item_id column not yet migrated",
     )
-    return {"inventory_levels": 0}
+    return {"inventory_levels": n}

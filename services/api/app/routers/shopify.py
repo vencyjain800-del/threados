@@ -15,7 +15,12 @@ from app.deps.deps import get_redis, get_redis_pool, require_auth
 from app.models.audit import AuditLog
 from app.models.shopify import ShopifyConnection, SyncRun, SyncStatus
 from app.models.tenancy import Session as DbSession
-from app.queues import enqueue_webhook_sync
+from app.queues import (
+    enqueue_backfill,
+    enqueue_deregister_schedule,
+    enqueue_register_schedule,
+    enqueue_webhook_sync,
+)
 from app.shopify.crypto import encrypt_token
 from app.shopify.oauth import (
     build_install_url,
@@ -102,6 +107,8 @@ async def callback(
 
         sync_run = SyncRun(brand_id=brand_id, kind="backfill", status=SyncStatus.queued)
         db.add(sync_run)
+        # uuid4 is generated Python-side at object creation — safe to read before commit
+        sync_run_id = str(sync_run.id)
 
         db.add(AuditLog(
             brand_id=brand_id,
@@ -109,6 +116,11 @@ async def callback(
             action="shopify.connected",
             target=shop,
         ))
+
+    # Enqueue the backfill and register the recurring incremental-sync schedule.
+    # Both run after the session commits so the SyncRun row is visible to the worker.
+    await asyncio.to_thread(enqueue_backfill, str(brand_id), sync_run_id)
+    await asyncio.to_thread(enqueue_register_schedule, str(brand_id))
 
     from app.config import settings
     return RedirectResponse(url=f"{settings.app_url}/dashboard?shopify=connected")
@@ -162,6 +174,7 @@ async def webhook_receiver(topic: str, request: Request) -> dict[str, bool]:
 
     # ── app/uninstalled ────────────────────────────────────────────────────────
     if topic == "app-uninstalled":
+        uninstalled_brand_id: str | None = None
         async with system_session() as db:
             result = await db.execute(
                 select(ShopifyConnection).where(ShopifyConnection.shop_domain == shop)
@@ -169,6 +182,10 @@ async def webhook_receiver(topic: str, request: Request) -> dict[str, bool]:
             conn = result.scalar_one_or_none()
             if conn:
                 conn.uninstalled_at = datetime.now(timezone.utc)
+                uninstalled_brand_id = str(conn.brand_id)
+        # Cancel the pending recurring incremental sync for this brand
+        if uninstalled_brand_id is not None:
+            await asyncio.to_thread(enqueue_deregister_schedule, uninstalled_brand_id)
         return {"received": True}
 
     # ── Resolve brand from shop domain ─────────────────────────────────────────

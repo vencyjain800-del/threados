@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, Text, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Numeric, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,7 +32,10 @@ class Product(Base):
 
 class Variant(Base):
     __tablename__ = "variants"
-    __table_args__ = (UniqueConstraint("brand_id", "shopify_id"),)
+    __table_args__ = (
+        UniqueConstraint("brand_id", "shopify_id"),
+        Index("ix_variants_inventory_item_id", "brand_id", "inventory_item_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     brand_id: Mapped[uuid.UUID] = mapped_column(
@@ -50,6 +53,7 @@ class Variant(Base):
     cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     barcode: Mapped[str | None] = mapped_column(Text, nullable=True)
     first_sold_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    inventory_item_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     product: Mapped["Product"] = relationship("Product", back_populates="variants")
 

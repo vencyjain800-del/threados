@@ -1,0 +1,34 @@
+[
+  {
+    "content": "Phase 1: Build POC script for SKU seeding + forecasting + recommendations + risk classification",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: Validate POC outputs look credible",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2: Get design guidelines from design_agent",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase 2: Build backend (services, seed, endpoints)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Build frontend (layout, dashboard, inventory, SKU detail, recommendations, risks)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: End-to-end testing with testing_agent_v3",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 3: Hardening + polish (states, explanations, CSV, filters)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 4: Auth - demo login, JWT, route protection",
+    "status": "pending"
+  }
+]

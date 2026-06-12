@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ChevronLeft, Calendar, TrendingUp, ShoppingBag, ShieldAlert, Boxes } from "lucide-react";
+import { ChevronLeft, Building2, ShoppingBag } from "lucide-react";
 import { api } from "@/lib/api";
-import { gbp, num, num1, formatDay, formatDateShort, daysFromNow } from "@/lib/format";
+import { gbp, num, num1, formatDay } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { RiskBadge } from "@/components/common/RiskBadge";
-import { ConfidenceBar } from "@/components/common/ConfidenceBar";
+import { WhyRecommendationPanel } from "@/components/common/WhyRecommendationPanel";
+import { HowWeCalculateButton } from "@/components/common/HowWeCalculate";
+import { CreatePOModal } from "@/components/common/CreatePOModal";
 import {
   ComposedChart,
   Bar,
@@ -35,6 +37,7 @@ export default function ProductDetailPage() {
   const { skuId } = useParams();
   const [d, setD] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [poOpen, setPoOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -56,15 +59,31 @@ export default function ProductDetailPage() {
   }
   if (!d) return <div className="text-sm text-muted-foreground">SKU not found.</div>;
 
-  const { sku, forecast, recommendation, risk, units_30d, revenue_30d, sales_history } = d;
-  const reorderIn = daysFromNow(recommendation.reorder_by_date);
+  const { sku, forecast, recommendation, risk, units_30d, revenue_30d, sales_history, explanation, supplier } = d;
+
+  // Build the unified item shape expected by WhyRecommendationPanel & CreatePOModal
+  const item = {
+    sku_id: sku.id,
+    name: sku.name,
+    category: sku.category,
+    current_stock: sku.current_stock,
+    cost: sku.cost,
+    price: sku.price,
+    confidence: forecast.confidence,
+    bucket: risk.bucket,
+    risk_label: risk.label,
+    risk_reason: risk.reason,
+    recommended_qty: recommendation.recommended_qty,
+    reorder_by_date: recommendation.reorder_by_date,
+    supplier_id: sku.supplier_id,
+    supplier_name: supplier?.name,
+    order_cost: recommendation.recommended_qty * sku.cost,
+    explanation,
+  };
 
   return (
     <div data-testid="product-detail-page">
-      <Link
-        to="/inventory"
-        className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground mb-4"
-      >
+      <Link to="/inventory" className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground mb-4">
         <ChevronLeft className="h-3 w-3 mr-1" /> Back to inventory
       </Link>
 
@@ -78,55 +97,41 @@ export default function ProductDetailPage() {
             {gbp(sku.price)} retail · {gbp(sku.cost)} cost · {sku.lead_time_days}d lead time
           </div>
         </div>
-        <div>
+        <div className="flex items-center gap-2">
+          <HowWeCalculateButton />
           <RiskBadge bucket={risk.bucket} />
+          {recommendation.recommended_qty > 0 && (
+            <Button onClick={() => setPoOpen(true)} data-testid="sku-create-po-button">
+              <ShoppingBag className="h-4 w-4" /> Create PO
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Top metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <MetricBox label="Current stock" value={num(sku.current_stock)} hint="units" testid="sku-current-stock" icon={Boxes} />
-        <MetricBox label="30d units sold" value={num(units_30d)} hint={gbp(revenue_30d)} icon={TrendingUp} />
-        <MetricBox label="Days of stock" value={`${num1(risk.days_of_stock)}d`} hint={`vs ${sku.lead_time_days}d lead`} icon={Calendar} />
-        <MetricBox label="Confidence" value={`${forecast.confidence}%`} hint="on 90d forecast" icon={ShieldAlert} />
+        <MetricBox label="Current stock" value={num(sku.current_stock)} hint="units" testid="sku-current-stock" />
+        <MetricBox label="30d units sold" value={num(units_30d)} hint={gbp(revenue_30d)} />
+        <MetricBox label="Days of stock" value={`${num1(risk.days_of_stock)}d`} hint={`vs ${sku.lead_time_days}d lead`} />
+        <MetricBox label="Confidence" value={`${forecast.confidence}%`} hint={`Tier: ${explanation.confidence_tier}`} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="font-display text-base">Sales history · 90 days</CardTitle>
-            <div className="text-xs text-muted-foreground">Daily units sold with trend</div>
+            <div className="text-xs text-muted-foreground">Daily units sold with forecast baseline</div>
           </CardHeader>
           <CardContent>
             <div className="h-[280px]" data-testid="sku-sales-history-chart">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={sales_history} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatDay}
-                    fontSize={11}
-                    stroke="hsl(var(--muted-foreground))"
-                    tickLine={false}
-                    axisLine={false}
-                    minTickGap={32}
-                  />
+                  <XAxis dataKey="date" tickFormatter={formatDay} fontSize={11} stroke="hsl(var(--muted-foreground))" tickLine={false} axisLine={false} minTickGap={32} />
                   <YAxis fontSize={11} stroke="hsl(var(--muted-foreground))" tickLine={false} axisLine={false} width={32} />
                   <Tooltip content={<Tip />} cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.4 }} />
-                  <Bar dataKey="units" fill="hsl(var(--chart-1))" fillOpacity={0.35} radius={[2, 2, 0, 0]} />
-                  <Line
-                    type="monotone"
-                    dataKey="units"
-                    stroke="hsl(var(--chart-1))"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <ReferenceLine
-                    y={forecast.daily_forecast}
-                    stroke="hsl(var(--success))"
-                    strokeDasharray="4 4"
-                    label={{ value: `forecast ${num1(forecast.daily_forecast)}/d`, fill: "hsl(var(--muted-foreground))", fontSize: 11, position: "right" }}
-                  />
+                  <Bar dataKey="units" fill="hsl(var(--chart-1))" fillOpacity={0.3} radius={[2, 2, 0, 0]} />
+                  <Line type="monotone" dataKey="units" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} />
+                  <ReferenceLine y={forecast.daily_forecast} stroke="hsl(var(--success))" strokeDasharray="4 4" label={{ value: `forecast ${num1(forecast.daily_forecast)}/d`, fill: "hsl(var(--muted-foreground))", fontSize: 11, position: "right" }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -143,71 +148,56 @@ export default function ProductDetailPage() {
               <ForecastRow label="Next 30 days" value={forecast.forecast_30} testid="sku-forecast-30-card" />
               <ForecastRow label="Next 60 days" value={forecast.forecast_60} testid="sku-forecast-60-card" />
               <ForecastRow label="Next 90 days" value={forecast.forecast_90} testid="sku-forecast-90-card" />
-              <div className="pt-2 border-t border-border">
-                <div className="text-xs text-muted-foreground mb-1.5">Confidence</div>
-                <ConfidenceBar value={forecast.confidence} testid="forecast-confidence-progress" />
-                <div className="text-[11px] text-muted-foreground mt-2">
-                  Method: exponential moving average + 30/30 trend.
-                </div>
-              </div>
             </CardContent>
           </Card>
 
-          <Card data-testid="sku-buy-recommendation">
-            <CardHeader className="pb-2">
-              <CardTitle className="font-display text-base flex items-center gap-2">
-                <ShoppingBag className="h-4 w-4" /> Buy recommendation
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {recommendation.recommended_qty > 0 ? (
-                <>
-                  <div className="font-display text-3xl font-semibold">
-                    {num(recommendation.recommended_qty)} <span className="text-sm font-normal text-muted-foreground">units</span>
-                  </div>
-                  <div className="text-sm mt-1">
-                    Reorder by <span className="font-medium">{formatDateShort(recommendation.reorder_by_date)}</span>
-                    {reorderIn <= 14 && (
-                      <span className="ml-2 text-xs text-[hsl(var(--warning))]">({reorderIn <= 0 ? "now" : `in ${reorderIn}d`})</span>
-                    )}
-                  </div>
-                  <ul className="mt-4 space-y-1.5 text-xs text-muted-foreground">
-                    <li>• Target cover: {sku.target_coverage_days} days post-arrival</li>
-                    <li>• Lead time: {sku.lead_time_days} days</li>
-                    <li>• Safety stock: {num(recommendation.safety_stock)} units</li>
-                    <li>• Stock at arrival (forecast): {num(recommendation.stock_at_arrival)} units</li>
-                  </ul>
-                </>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  No buy needed right now. Coverage is comfortable.
+          {supplier && (
+            <Card data-testid="sku-supplier-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="font-display text-base flex items-center gap-2">
+                  <Building2 className="h-4 w-4" /> Supplier
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                <div className="font-medium">{supplier.name}</div>
+                <div className="text-xs text-muted-foreground">{supplier.city}, {supplier.country}</div>
+                <div className="text-xs text-muted-foreground">
+                  Lead time: {supplier.lead_time_days}d · Min order: {gbp(supplier.min_order_value)}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card data-testid="sku-risk-explanation">
-            <CardHeader className="pb-2">
-              <CardTitle className="font-display text-base">Risk explanation</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <RiskBadge bucket={risk.bucket} className="mb-2" />
-              <p className="text-sm text-foreground/85">{risk.reason}</p>
-            </CardContent>
-          </Card>
+                <div className="text-xs text-muted-foreground">{supplier.contact_name} · {supplier.contact_email}</div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
+
+      {/* Why this recommendation */}
+      <Card className="mt-6" data-testid="sku-why-recommendation">
+        <CardHeader>
+          <CardTitle className="font-display text-base">Why this recommendation?</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <WhyRecommendationPanel
+            item={item}
+            onCreatePO={() => setPoOpen(true)}
+          />
+        </CardContent>
+      </Card>
+
+      <CreatePOModal
+        open={poOpen}
+        onOpenChange={setPoOpen}
+        item={item}
+        onCreated={() => setPoOpen(false)}
+      />
     </div>
   );
 }
 
-function MetricBox({ label, value, hint, icon: Icon, testid }) {
+function MetricBox({ label, value, hint, testid }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4" data-testid={testid}>
-      <div className="flex items-center justify-between text-xs uppercase tracking-[0.06em] text-muted-foreground">
-        <span>{label}</span>
-        {Icon && <Icon className="h-3.5 w-3.5" />}
-      </div>
+      <div className="text-xs uppercase tracking-[0.06em] text-muted-foreground">{label}</div>
       <div className="font-display text-xl font-semibold mt-1.5 tabular-nums">{value}</div>
       {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
     </div>

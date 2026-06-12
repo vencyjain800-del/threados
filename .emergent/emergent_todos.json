@@ -1,26 +1,22 @@
 [
   {
-    "content": "Phase 1: POC core logic (forecasting, recommendations, risk)",
+    "content": "Phase 3.1: Shopify integration flow (mock/demo connection)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Get design guidelines from design_agent",
+    "content": "Phase 3.2: Forecast explainability panel — 'Why this recommendation' (velocity, stock, forecast, confidence, risk) on every recommendation + dedicated 'How we calculate' modal",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Build backend (services, seed, endpoints)",
+    "content": "Phase 3.3: Supplier tags + Purchase Order workflow (draft → sent → received)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Build frontend (layout, dashboard, inventory, SKU detail, recommendations, risks)",
+    "content": "Phase 3.4: Scalability improvements (pagination, server-side filtering)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: End-to-end testing with testing_agent_v3",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 3: Optional hardening + polish (if user requests)",
-    "status": "pending"
+    "content": "Phase 3: End-to-end testing of all new features",
+    "status": "in_progress"
   }
 ]

@@ -10,17 +10,19 @@ import ProductDetailPage from "@/pages/ProductDetailPage";
 import ForecastingPage from "@/pages/ForecastingPage";
 import RecommendationsPage from "@/pages/RecommendationsPage";
 import RisksPage from "@/pages/RisksPage";
+import SuppliersPage from "@/pages/SuppliersPage";
+import PurchaseOrdersPage from "@/pages/PurchaseOrdersPage";
+import IntegrationsPage from "@/pages/IntegrationsPage";
 import "@/App.css";
 
 function RequireAuth({ children }) {
   const { user, hydrating } = useAuth();
-  if (hydrating) {
+  if (hydrating)
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background text-muted-foreground">
         Loading…
       </div>
     );
-  }
   if (!user) return <Navigate to="/login" replace />;
   return children;
 }
@@ -53,6 +55,9 @@ function App() {
               <Route path="/forecasting" element={<ForecastingPage />} />
               <Route path="/recommendations" element={<RecommendationsPage />} />
               <Route path="/risks" element={<RisksPage />} />
+              <Route path="/suppliers" element={<SuppliersPage />} />
+              <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
+              <Route path="/integrations" element={<IntegrationsPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

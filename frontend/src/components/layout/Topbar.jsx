@@ -18,17 +18,20 @@ const TITLES = {
   "/forecasting": { title: "Forecasting", sub: "30 / 60 / 90 day demand outlook" },
   "/recommendations": { title: "Buy recommendations", sub: "What to order and when" },
   "/risks": { title: "Risk centre", sub: "Stockout and overstock signals" },
+  "/suppliers": { title: "Suppliers", sub: "Partner overview and exposure" },
+  "/purchase-orders": { title: "Purchase orders", sub: "Drafts, sent and received" },
+  "/integrations": { title: "Integrations", sub: "Connect Shopify and data sources" },
 };
 
 export default function Topbar() {
   const { theme, toggle } = useTheme();
   const { user, logout } = useAuth();
   const loc = useLocation();
-  const navigate = useNavigate();
   const meta =
     TITLES[loc.pathname] ||
-    (loc.pathname.startsWith("/products/") ? { title: "Product detail", sub: "SKU performance + forecast" } : { title: "", sub: "" });
-
+    (loc.pathname.startsWith("/products/")
+      ? { title: "Product detail", sub: "SKU performance + forecast" }
+      : { title: "", sub: "" });
   const initials = (user?.name || "AC")
     .split(" ")
     .map((s) => s[0])

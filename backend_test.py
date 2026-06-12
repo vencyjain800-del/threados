@@ -29,6 +29,10 @@ class ThreadOSAPITester:
                 response = requests.get(url, headers=headers, timeout=30)
             elif method == 'POST':
                 response = requests.post(url, json=data, headers=headers, timeout=30)
+            elif method == 'PATCH':
+                response = requests.patch(url, json=data, headers=headers, timeout=30)
+            elif method == 'DELETE':
+                response = requests.delete(url, headers=headers, timeout=30)
             else:
                 print(f"❌ Failed - Unsupported method {method}")
                 self.failed_tests.append({"test": name, "reason": f"Unsupported method {method}"})
@@ -303,6 +307,307 @@ class ThreadOSAPITester:
         
         return success and success2 and success3
 
+    # ========== PHASE 3 TESTS ==========
+    
+    def test_shopify_integration_get(self):
+        """Test GET /api/integrations/shopify"""
+        success, response = self.run_test(
+            "GET /api/integrations/shopify",
+            "GET",
+            "integrations/shopify",
+            200,
+            check_response=lambda r: 'status' in r and 'data' in r and 'products_imported' in r['data'] and 'sales_records_imported' in r['data']
+        )
+        if success:
+            print(f"   ✓ Status: {response.get('status')}")
+            print(f"   ✓ Products imported: {response['data'].get('products_imported')}")
+            print(f"   ✓ Sales records imported: {response['data'].get('sales_records_imported')}")
+            print(f"   ✓ Events count: {len(response.get('events', []))}")
+        return success, response
+
+    def test_shopify_connect(self):
+        """Test POST /api/integrations/shopify/connect"""
+        success, response = self.run_test(
+            "POST /api/integrations/shopify/connect with valid store URL",
+            "POST",
+            "integrations/shopify/connect",
+            200,
+            data={"store_url": "ateliersable.myshopify.com"},
+            check_response=lambda r: r.get('status') == 'connected' and len(r.get('events', [])) >= 4
+        )
+        if success:
+            print(f"   ✓ Status: {response.get('status')}")
+            print(f"   ✓ Store URL: {response.get('store_url')}")
+            print(f"   ✓ Events count: {len(response.get('events', []))}")
+            print(f"   ✓ Connected at: {response.get('connected_at')}")
+        return success
+
+    def test_shopify_connect_invalid(self):
+        """Test POST /api/integrations/shopify/connect with invalid URL"""
+        success, response = self.run_test(
+            "POST /api/integrations/shopify/connect with invalid URL",
+            "POST",
+            "integrations/shopify/connect",
+            400,
+            data={"store_url": "invalid"}
+        )
+        return success
+
+    def test_shopify_sync(self):
+        """Test POST /api/integrations/shopify/sync"""
+        success, response = self.run_test(
+            "POST /api/integrations/shopify/sync",
+            "POST",
+            "integrations/shopify/sync",
+            200,
+            check_response=lambda r: r.get('status') == 'connected' and 'last_sync_at' in r
+        )
+        if success:
+            print(f"   ✓ Last sync at: {response.get('last_sync_at')}")
+            print(f"   ✓ Events count: {len(response.get('events', []))}")
+        return success
+
+    def test_shopify_disconnect(self):
+        """Test POST /api/integrations/shopify/disconnect"""
+        success, response = self.run_test(
+            "POST /api/integrations/shopify/disconnect",
+            "POST",
+            "integrations/shopify/disconnect",
+            200,
+            check_response=lambda r: r.get('status') == 'disconnected'
+        )
+        if success:
+            print(f"   ✓ Status: {response.get('status')}")
+            print(f"   ✓ Store URL: {response.get('store_url')}")
+        return success
+
+    def test_suppliers_list(self):
+        """Test GET /api/suppliers"""
+        success, response = self.run_test(
+            "GET /api/suppliers",
+            "GET",
+            "suppliers",
+            200,
+            check_response=lambda r: 'items' in r and len(r['items']) == 6 and all('sku_count' in s and 'inventory_cost' in s and 'categories' in s for s in r['items'])
+        )
+        if success:
+            print(f"   ✓ Total suppliers: {len(response.get('items', []))}")
+            for s in response.get('items', [])[:3]:
+                print(f"     - {s.get('name')}: {s.get('sku_count')} SKUs, £{s.get('inventory_cost')} inventory, {s.get('lead_time_days')}d lead time")
+        return success, response
+
+    def test_supplier_detail(self):
+        """Test GET /api/suppliers/{id}"""
+        # First get a supplier ID
+        success_list, suppliers_response = self.test_suppliers_list()
+        if not success_list or not suppliers_response.get('items'):
+            return False
+        
+        supplier_id = suppliers_response['items'][0]['id']
+        success, response = self.run_test(
+            f"GET /api/suppliers/{supplier_id}",
+            "GET",
+            f"suppliers/{supplier_id}",
+            200,
+            check_response=lambda r: 'skus' in r and 'sku_count' in r and 'inventory_cost' in r
+        )
+        if success:
+            print(f"   ✓ Supplier: {response.get('name')}")
+            print(f"   ✓ SKU count: {response.get('sku_count')}")
+            print(f"   ✓ Inventory cost: £{response.get('inventory_cost')}")
+            print(f"   ✓ SKUs list length: {len(response.get('skus', []))}")
+        return success
+
+    def test_purchase_orders_list(self):
+        """Test GET /api/purchase-orders"""
+        success, response = self.run_test(
+            "GET /api/purchase-orders",
+            "GET",
+            "purchase-orders",
+            200,
+            check_response=lambda r: 'items' in r and 'counts' in r and 'total_open_cost' in r
+        )
+        if success:
+            print(f"   ✓ Total POs: {response.get('total')}")
+            print(f"   ✓ Counts by status: {response.get('counts')}")
+            print(f"   ✓ Total open cost: £{response.get('total_open_cost')}")
+        return success, response
+
+    def test_purchase_order_create(self):
+        """Test POST /api/purchase-orders"""
+        success, response = self.run_test(
+            "POST /api/purchase-orders",
+            "POST",
+            "purchase-orders",
+            200,
+            data={
+                "lines": [
+                    {"sku_id": "SKU-0001", "qty": 50, "unit_cost": 25.00}
+                ],
+                "notes": "Test PO from API test suite"
+            },
+            check_response=lambda r: r.get('status') == 'draft' and 'number' in r and 'supplier' in r
+        )
+        if success:
+            print(f"   ✓ PO number: {response.get('number')}")
+            print(f"   ✓ Status: {response.get('status')}")
+            print(f"   ✓ Total cost: £{response.get('total_cost')}")
+            print(f"   ✓ Total units: {response.get('total_units')}")
+            print(f"   ✓ Supplier: {response.get('supplier', {}).get('name')}")
+        return success, response
+
+    def test_purchase_order_create_no_lines(self):
+        """Test POST /api/purchase-orders with no lines (should fail)"""
+        success, response = self.run_test(
+            "POST /api/purchase-orders with no lines",
+            "POST",
+            "purchase-orders",
+            400,
+            data={"lines": []}
+        )
+        return success
+
+    def test_purchase_order_status_update(self):
+        """Test PATCH /api/purchase-orders/{id}/status"""
+        # First create a PO
+        success_create, po_response = self.test_purchase_order_create()
+        if not success_create:
+            return False
+        
+        po_id = po_response.get('id')
+        
+        # Mark as sent
+        success_sent, response_sent = self.run_test(
+            f"PATCH /api/purchase-orders/{po_id}/status to 'sent'",
+            "PATCH",
+            f"purchase-orders/{po_id}/status",
+            200,
+            data={"status": "sent"},
+            check_response=lambda r: r.get('status') == 'sent' and 'sent_at' in r
+        )
+        if success_sent:
+            print(f"   ✓ Status updated to: {response_sent.get('status')}")
+            print(f"   ✓ Sent at: {response_sent.get('sent_at')}")
+        
+        # Mark as received (should increment stock)
+        success_received, response_received = self.run_test(
+            f"PATCH /api/purchase-orders/{po_id}/status to 'received'",
+            "PATCH",
+            f"purchase-orders/{po_id}/status",
+            200,
+            data={"status": "received"},
+            check_response=lambda r: r.get('status') == 'received' and 'received_at' in r
+        )
+        if success_received:
+            print(f"   ✓ Status updated to: {response_received.get('status')}")
+            print(f"   ✓ Received at: {response_received.get('received_at')}")
+        
+        return success_sent and success_received
+
+    def test_purchase_order_delete(self):
+        """Test DELETE /api/purchase-orders/{id}"""
+        # First create a PO
+        success_create, po_response = self.test_purchase_order_create()
+        if not success_create:
+            return False
+        
+        po_id = po_response.get('id')
+        
+        success, response = self.run_test(
+            f"DELETE /api/purchase-orders/{po_id}",
+            "DELETE",
+            f"purchase-orders/{po_id}",
+            200,
+            check_response=lambda r: r.get('deleted') == True
+        )
+        if success:
+            print(f"   ✓ PO deleted successfully")
+        return success
+
+    def test_products_pagination(self):
+        """Test GET /api/products with pagination"""
+        success1, response1 = self.run_test(
+            "GET /api/products?page=1&page_size=10",
+            "GET",
+            "products?page=1&page_size=10",
+            200,
+            check_response=lambda r: len(r['items']) == 10 and 'page_count' in r
+        )
+        if success1:
+            print(f"   ✓ Page 1 items: {len(response1['items'])}")
+            print(f"   ✓ Total: {response1.get('total')}")
+            print(f"   ✓ Page count: {response1.get('page_count')}")
+        
+        success2, response2 = self.run_test(
+            "GET /api/products?page=2&page_size=10",
+            "GET",
+            "products?page=2&page_size=10",
+            200,
+            check_response=lambda r: len(r['items']) <= 10
+        )
+        
+        return success1 and success2
+
+    def test_products_supplier_filter(self):
+        """Test GET /api/products?supplier_id=<id>"""
+        # First get a supplier ID
+        success_list, suppliers_response = self.test_suppliers_list()
+        if not success_list or not suppliers_response.get('items'):
+            return False
+        
+        supplier_id = suppliers_response['items'][0]['id']
+        success, response = self.run_test(
+            f"GET /api/products?supplier_id={supplier_id}",
+            "GET",
+            f"products?supplier_id={supplier_id}",
+            200,
+            check_response=lambda r: all(i.get('supplier_id') == supplier_id for i in r['items']) and all('supplier_name' in i for i in r['items'])
+        )
+        if success:
+            print(f"   ✓ Filtered items: {len(response['items'])}")
+            if response['items']:
+                print(f"   ✓ Supplier name: {response['items'][0].get('supplier_name')}")
+        return success
+
+    def test_recommendations_with_explanation(self):
+        """Test GET /api/recommendations with explanation"""
+        success, response = self.run_test(
+            "GET /api/recommendations (with explanation)",
+            "GET",
+            "recommendations",
+            200,
+            check_response=lambda r: 'items' in r and 'by_supplier' in r and all('explanation' in i for i in r['items'])
+        )
+        if success:
+            print(f"   ✓ Items with explanation: {len(response['items'])}")
+            print(f"   ✓ By supplier breakdown: {len(response.get('by_supplier', []))} suppliers")
+            if response['items']:
+                exp = response['items'][0].get('explanation', {})
+                print(f"   ✓ Explanation keys: {list(exp.keys())}")
+                print(f"   ✓ Drivers count: {len(exp.get('drivers', []))}")
+                print(f"   ✓ Math bullets count: {len(exp.get('math', []))}")
+        return success
+
+    def test_product_detail_with_explanation(self):
+        """Test GET /api/products/{id} with explanation and supplier"""
+        success, response = self.run_test(
+            "GET /api/products/SKU-0001 (with explanation + supplier)",
+            "GET",
+            "products/SKU-0001",
+            200,
+            check_response=lambda r: 'explanation' in r and 'supplier' in r
+        )
+        if success:
+            exp = response.get('explanation', {})
+            print(f"   ✓ Explanation headline: {exp.get('headline')}")
+            print(f"   ✓ Drivers: {len(exp.get('drivers', []))}")
+            print(f"   ✓ Math bullets: {len(exp.get('math', []))}")
+            print(f"   ✓ Confidence tier: {exp.get('confidence_tier')}")
+            sup = response.get('supplier')
+            if sup:
+                print(f"   ✓ Supplier: {sup.get('name')}")
+        return success
+
     def print_summary(self):
         """Print test summary"""
         print("\n" + "="*60)
@@ -379,6 +684,58 @@ def main():
     print("📈 FORECASTING TESTS")
     print("="*60)
     tester.test_forecasting()
+    
+    # ========== PHASE 3 TESTS ==========
+    
+    # Shopify integration tests
+    print("\n" + "="*60)
+    print("🔌 SHOPIFY INTEGRATION TESTS (Phase 3)")
+    print("="*60)
+    shopify_status, shopify_data = tester.test_shopify_integration_get()
+    # If already connected, disconnect first to test connect flow
+    if shopify_status and shopify_data.get('status') == 'connected':
+        print("\n   ℹ️  Shopify already connected, disconnecting first...")
+        tester.test_shopify_disconnect()
+    tester.test_shopify_connect()
+    tester.test_shopify_connect_invalid()
+    tester.test_shopify_sync()
+    # Leave connected for frontend tests
+    
+    # Suppliers tests
+    print("\n" + "="*60)
+    print("🏭 SUPPLIERS TESTS (Phase 3)")
+    print("="*60)
+    tester.test_suppliers_list()
+    tester.test_supplier_detail()
+    
+    # Purchase orders tests
+    print("\n" + "="*60)
+    print("📋 PURCHASE ORDERS TESTS (Phase 3)")
+    print("="*60)
+    tester.test_purchase_orders_list()
+    tester.test_purchase_order_create()
+    tester.test_purchase_order_create_no_lines()
+    tester.test_purchase_order_status_update()
+    tester.test_purchase_order_delete()
+    
+    # Products pagination & supplier filter tests
+    print("\n" + "="*60)
+    print("📦 PRODUCTS PAGINATION & SUPPLIER FILTER (Phase 3)")
+    print("="*60)
+    tester.test_products_pagination()
+    tester.test_products_supplier_filter()
+    
+    # Recommendations with explanation tests
+    print("\n" + "="*60)
+    print("💡 RECOMMENDATIONS WITH EXPLANATION (Phase 3)")
+    print("="*60)
+    tester.test_recommendations_with_explanation()
+    
+    # Product detail with explanation tests
+    print("\n" + "="*60)
+    print("📦 PRODUCT DETAIL WITH EXPLANATION (Phase 3)")
+    print("="*60)
+    tester.test_product_detail_with_explanation()
     
     # Print summary
     all_passed = tester.print_summary()

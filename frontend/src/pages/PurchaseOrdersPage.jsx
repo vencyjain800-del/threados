@@ -253,7 +253,7 @@ export default function PurchaseOrdersPage() {
                 )}
 
                 <div>
-                  <div className="text-xs uppercase tracking-[0.06em] text-muted-foreground mb-1">Lines</div>
+                  <div className="text-xs uppercase tracking-[0.06em] text-muted-foreground mb-1">Line items</div>
                   <div className="rounded-lg border border-border divide-y divide-border">
                     {open.lines.map((l) => (
                       <div key={l.sku_id} className="flex items-center justify-between px-3 py-2">

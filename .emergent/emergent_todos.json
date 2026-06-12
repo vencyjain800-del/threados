@@ -1,22 +1,30 @@
 [
   {
-    "content": "Phase 3.1: Shopify integration flow (mock/demo connection)",
-    "status": "completed"
+    "content": "Stability: verify zero compile errors + all sidebar routes accessible",
+    "status": "in_progress"
   },
   {
-    "content": "Phase 3.2: Forecast explainability panel — 'Why this recommendation' (velocity, stock, forecast, confidence, risk) on every recommendation + dedicated 'How we calculate' modal",
-    "status": "completed"
+    "content": "Stability: mobile responsive nav + verify on 390px viewport",
+    "status": "pending"
   },
   {
-    "content": "Phase 3.3: Supplier tags + Purchase Order workflow (draft → sent → received)",
-    "status": "completed"
+    "content": "Investor Demo: backend brand scoping + Willow & Oak seed (120 SKUs, 3 stockout, 2 overstock) + 28-day forecast",
+    "status": "pending"
   },
   {
-    "content": "Phase 3.4: Scalability improvements (pagination, server-side filtering)",
-    "status": "completed"
+    "content": "Investor Demo: /api/demo/investor-login endpoint (no password)",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: End-to-end testing of all new features",
-    "status": "completed"
+    "content": "Investor Demo: 'Enter investor demo' one-click button on login page",
+    "status": "pending"
+  },
+  {
+    "content": "Mark all 3 demo scenarios visible: stockout, overstock, buy rec",
+    "status": "pending"
+  },
+  {
+    "content": "Final end-to-end testing + provide live URL",
+    "status": "pending"
   }
 ]

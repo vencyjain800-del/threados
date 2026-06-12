@@ -12,15 +12,14 @@ def _ema(values, alpha=0.25):
     return s
 
 
-def forecast_from_history(sales_rows: list[dict]) -> dict:
+def forecast_from_history(sales_rows):
     units = [int(r.get("units", 0)) for r in sales_rows]
     n = len(units)
     if n == 0:
-        return {"daily_forecast": 0.0, "forecast_30": 0, "forecast_60": 0, "forecast_90": 0, "confidence": 50, "method": "no-data", "trend": 0.0, "avg_30": 0.0, "avg_60": 0.0}
+        return {"daily_forecast": 0.0, "forecast_28": 0, "forecast_30": 0, "forecast_60": 0, "forecast_90": 0, "confidence": 50, "method": "no-data", "trend": 0.0, "avg_30": 0.0, "avg_60": 0.0}
     recent = units[-60:] if n >= 60 else units
     avg_recent = statistics.fmean(recent)
     avg_30 = statistics.fmean(units[-30:]) if n >= 30 else avg_recent
-    avg_60 = avg_recent
     if n >= 60:
         prior = statistics.fmean(units[-60:-30])
         recent30 = avg_30
@@ -39,10 +38,10 @@ def forecast_from_history(sales_rows: list[dict]) -> dict:
         confidence = int(round(max(50, min(95, 95 - cv * 38))))
         if mean < 1.0:
             confidence = max(45, confidence - 8)
-    return {"daily_forecast": round(daily, 3), "forecast_30": int(round(daily * 30)), "forecast_60": int(round(daily * 60)), "forecast_90": int(round(daily * 90)), "confidence": confidence, "method": "ema+trend", "trend": round(trend, 3), "avg_30": round(avg_30, 2), "avg_60": round(avg_60, 2)}
+    return {"daily_forecast": round(daily, 3), "forecast_28": int(round(daily * 28)), "forecast_30": int(round(daily * 30)), "forecast_60": int(round(daily * 60)), "forecast_90": int(round(daily * 90)), "confidence": confidence, "method": "ema+trend", "trend": round(trend, 3), "avg_30": round(avg_30, 2), "avg_60": round(avg_recent, 2)}
 
 
-def recommend_buy(sku: dict, fc: dict) -> dict:
+def recommend_buy(sku, fc):
     daily = float(fc["daily_forecast"])
     lead = int(sku["lead_time_days"])
     target_days = int(sku["target_coverage_days"])
@@ -62,7 +61,7 @@ def recommend_buy(sku: dict, fc: dict) -> dict:
 RISK_LABELS = {"high_stockout": "High Stockout Risk", "medium_stockout": "Medium Stockout Risk", "healthy": "Healthy Inventory", "medium_overstock": "Medium Overstock Risk", "high_overstock": "High Overstock Risk"}
 
 
-def classify_risk(sku: dict, fc: dict) -> dict:
+def classify_risk(sku, fc):
     daily = float(fc["daily_forecast"])
     current = int(sku["current_stock"])
     lead = int(sku["lead_time_days"])
@@ -86,7 +85,7 @@ def classify_risk(sku: dict, fc: dict) -> dict:
     return {"bucket": bucket, "label": RISK_LABELS[bucket], "reason": reason, "days_of_stock": round(min(999.0, days_of_stock), 1), "coverage_ratio": round(coverage_ratio, 2)}
 
 
-def confidence_tier(c: int):
+def confidence_tier(c):
     if c >= 80:
         return "High", "Sales pattern is steady \u2014 we trust this forecast."
     if c >= 65:
@@ -96,7 +95,7 @@ def confidence_tier(c: int):
     return "Low", "Too little signal \u2014 review before committing capital."
 
 
-def build_explanation(sku: dict, fc: dict, rec: dict, risk: dict) -> dict:
+def build_explanation(sku, fc, rec, risk):
     daily = fc["daily_forecast"]
     trend_pct = round(fc["trend"] * 100)
     tier, tier_explain = confidence_tier(fc["confidence"])
@@ -108,7 +107,7 @@ def build_explanation(sku: dict, fc: dict, rec: dict, risk: dict) -> dict:
     drivers = [
         {"key": "velocity", "label": "Sales velocity", "value": f"{daily:.1f} units / day", "detail": f"Last 30 days averaged {fc['avg_30']:.1f}/day. Trend vs prior 30 days: {trend_pct:+d}%."},
         {"key": "stock", "label": "Current stock", "value": f"{sku['current_stock']:,} units", "detail": f"That's {rec['days_of_stock']:.0f} days of cover at the current pace."},
-        {"key": "forecast", "label": "Forecast demand", "value": f"{fc['forecast_30']:,} / {fc['forecast_60']:,} / {fc['forecast_90']:,} units", "detail": "Projected units for the next 30 / 60 / 90 days."},
+        {"key": "forecast", "label": "Forecast demand", "value": f"{fc['forecast_28']:,} (28d) / {fc['forecast_60']:,} (60d) / {fc['forecast_90']:,} (90d)", "detail": "Projected units across the next forecast windows."},
         {"key": "confidence", "label": "Forecast confidence", "value": f"{fc['confidence']}% · {tier}", "detail": tier_explain},
         {"key": "risk", "label": "Stockout risk", "value": risk["label"], "detail": risk["reason"]},
     ]
@@ -128,12 +127,12 @@ def build_explanation(sku: dict, fc: dict, rec: dict, risk: dict) -> dict:
     return {"headline": headline, "drivers": drivers, "math": math_bullets, "confidence_tier": tier}
 
 
-async def load_sku_history(db, sku_id: str) -> list[dict]:
+async def load_sku_history(db, sku_id):
     cursor = db.sales_history.find({"sku_id": sku_id}, {"_id": 0}).sort("date", 1)
     return await cursor.to_list(length=400)
 
 
-async def build_full_sku_analytics(db, sku: dict) -> dict:
+async def build_full_sku_analytics(db, sku):
     rows = await load_sku_history(db, sku["id"])
     fc = forecast_from_history(rows)
     rec = recommend_buy(sku, fc)

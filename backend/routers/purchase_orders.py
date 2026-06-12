@@ -6,7 +6,7 @@ import uuid
 from collections import defaultdict
 
 from db import db
-from auth import get_current_user
+from auth import get_current_user, brand_of
 
 po_router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
 VALID_STATUSES = ["draft", "sent", "received", "cancelled"]
@@ -40,9 +40,7 @@ async def _enrich_po(po: dict) -> dict:
     sku_ids = [l["sku_id"] for l in po.get("lines", [])]
     products = await db.products.find({"id": {"$in": sku_ids}}, {"_id": 0, "id": 1, "name": 1, "category": 1}).to_list(200) if sku_ids else []
     by_id = {p["id"]: p for p in products}
-    lines_out = []
-    total_cost = 0.0
-    total_units = 0
+    lines_out, total_cost, total_units = [], 0.0, 0
     for l in po.get("lines", []):
         p = by_id.get(l["sku_id"], {})
         line_cost = l["qty"] * l["unit_cost"]
@@ -54,12 +52,13 @@ async def _enrich_po(po: dict) -> dict:
 
 @po_router.get("")
 async def list_pos(status: Optional[str] = None, user: dict = Depends(get_current_user)):
-    q = {}
+    brand = brand_of(user)
+    q = {"brand_id": brand}
     if status and status != "all":
         q["status"] = status
     pos = await db.purchase_orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     enriched = [await _enrich_po(p) for p in pos]
-    all_pos = await db.purchase_orders.find({}, {"_id": 0, "status": 1}).to_list(500)
+    all_pos = await db.purchase_orders.find({"brand_id": brand}, {"_id": 0, "status": 1}).to_list(500)
     counts = defaultdict(int)
     for p in all_pos:
         counts[p.get("status", "draft")] += 1
@@ -69,7 +68,8 @@ async def list_pos(status: Optional[str] = None, user: dict = Depends(get_curren
 
 @po_router.get("/{po_id}")
 async def get_po(po_id: str, user: dict = Depends(get_current_user)):
-    po = await db.purchase_orders.find_one({"id": po_id}, {"_id": 0})
+    brand = brand_of(user)
+    po = await db.purchase_orders.find_one({"id": po_id, "brand_id": brand}, {"_id": 0})
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     return await _enrich_po(po)
@@ -77,16 +77,17 @@ async def get_po(po_id: str, user: dict = Depends(get_current_user)):
 
 @po_router.post("")
 async def create_po(payload: POCreate, user: dict = Depends(get_current_user)):
+    brand = brand_of(user)
     if not payload.lines:
         raise HTTPException(status_code=400, detail="Purchase order must have at least one line")
     supplier_id = payload.supplier_id
     if not supplier_id:
-        first_sku = await db.products.find_one({"id": payload.lines[0].sku_id}, {"_id": 0, "supplier_id": 1})
+        first_sku = await db.products.find_one({"id": payload.lines[0].sku_id, "brand_id": brand}, {"_id": 0, "supplier_id": 1})
         supplier_id = (first_sku or {}).get("supplier_id")
-    count = await db.purchase_orders.count_documents({})
+    count = await db.purchase_orders.count_documents({"brand_id": brand})
     po_num = f"PO-{(count + 1):05d}"
     po_id = str(uuid.uuid4())
-    po_doc = {"id": po_id, "number": po_num, "supplier_id": supplier_id, "status": "draft", "reorder_by_date": payload.reorder_by_date, "notes": payload.notes or "", "lines": [l.model_dump() for l in payload.lines], "created_by": user.get("email"), "created_at": _now(), "updated_at": _now(), "sent_at": None, "received_at": None}
+    po_doc = {"id": po_id, "brand_id": brand, "number": po_num, "supplier_id": supplier_id, "status": "draft", "reorder_by_date": payload.reorder_by_date, "notes": payload.notes or "", "lines": [l.model_dump() for l in payload.lines], "created_by": user.get("email"), "created_at": _now(), "updated_at": _now(), "sent_at": None, "received_at": None}
     await db.purchase_orders.insert_one(po_doc)
     po_doc.pop("_id", None)
     return await _enrich_po(po_doc)
@@ -94,9 +95,10 @@ async def create_po(payload: POCreate, user: dict = Depends(get_current_user)):
 
 @po_router.patch("/{po_id}/status")
 async def update_status(po_id: str, payload: POStatusUpdate, user: dict = Depends(get_current_user)):
+    brand = brand_of(user)
     if payload.status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail=f"status must be one of {VALID_STATUSES}")
-    po = await db.purchase_orders.find_one({"id": po_id})
+    po = await db.purchase_orders.find_one({"id": po_id, "brand_id": brand})
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     updates = {"status": payload.status, "updated_at": _now()}
@@ -107,14 +109,15 @@ async def update_status(po_id: str, payload: POStatusUpdate, user: dict = Depend
     await db.purchase_orders.update_one({"id": po_id}, {"$set": updates})
     if payload.status == "received" and po.get("status") != "received":
         for l in po.get("lines", []):
-            await db.products.update_one({"id": l["sku_id"]}, {"$inc": {"current_stock": int(l["qty"])}})
+            await db.products.update_one({"id": l["sku_id"], "brand_id": brand}, {"$inc": {"current_stock": int(l["qty"])}})
     refreshed = await db.purchase_orders.find_one({"id": po_id}, {"_id": 0})
     return await _enrich_po(refreshed)
 
 
 @po_router.delete("/{po_id}")
 async def delete_po(po_id: str, user: dict = Depends(get_current_user)):
-    res = await db.purchase_orders.delete_one({"id": po_id})
+    brand = brand_of(user)
+    res = await db.purchase_orders.delete_one({"id": po_id, "brand_id": brand})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     return {"deleted": True}

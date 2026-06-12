@@ -62,8 +62,8 @@ logger = logging.getLogger("threados")
 async def startup():
     logger.info("ThreadOS starting up...")
     await ensure_demo_user()
-    seeded = await seed_if_empty()
     await ensure_supplier_links()
+    seeded = await seed_if_empty()
     if seeded:
         logger.info(f"Seeded {seeded} SKUs with 90 days history.")
     else:

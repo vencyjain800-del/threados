@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional
 
 from db import db
-from auth import get_current_user
+from auth import get_current_user, brand_of
 from services.analytics import build_full_sku_analytics, forecast_from_history, load_sku_history
 
 products_router = APIRouter(prefix="/products", tags=["products"])
@@ -19,56 +19,46 @@ async def list_products(
     page_size: int = Query(default=25, ge=5, le=200),
     user: dict = Depends(get_current_user),
 ):
-    query = {}
+    brand = brand_of(user)
+    query = {"brand_id": brand}
     if category and category != "all":
         query["category"] = category
     if supplier_id and supplier_id != "all":
         query["supplier_id"] = supplier_id
-    products = await db.products.find(query, {"_id": 0}).to_list(length=1000)
+    products = await db.products.find(query, {"_id": 0}).to_list(length=2000)
     analytics = [await build_full_sku_analytics(db, p) for p in products]
     suppliers_doc = await db.suppliers.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
     sup_map = {s["id"]: s["name"] for s in suppliers_doc}
 
     items = []
     for a in analytics:
-        items.append({
-            "sku_id": a["sku"]["id"], "name": a["sku"]["name"], "category": a["sku"]["category"], "size": a["sku"]["size"], "color": a["sku"]["color"], "cost": a["sku"]["cost"], "price": a["sku"]["price"], "current_stock": a["sku"]["current_stock"], "units_30d": a["units_30d"], "revenue_30d": a["revenue_30d"], "days_of_stock": a["risk"]["days_of_stock"], "bucket": a["risk"]["bucket"], "risk_label": a["risk"]["label"], "confidence": a["forecast"]["confidence"], "forecast_30": a["forecast"]["forecast_30"], "forecast_60": a["forecast"]["forecast_60"], "forecast_90": a["forecast"]["forecast_90"], "recommended_qty": a["recommendation"]["recommended_qty"], "reorder_by_date": a["recommendation"]["reorder_by_date"], "lead_time_days": a["sku"]["lead_time_days"], "supplier_id": a["sku"].get("supplier_id"), "supplier_name": sup_map.get(a["sku"].get("supplier_id"), ""),
-        })
+        items.append({"sku_id": a["sku"]["id"], "name": a["sku"]["name"], "category": a["sku"]["category"], "size": a["sku"]["size"], "color": a["sku"]["color"], "cost": a["sku"]["cost"], "price": a["sku"]["price"], "current_stock": a["sku"]["current_stock"], "units_30d": a["units_30d"], "revenue_30d": a["revenue_30d"], "days_of_stock": a["risk"]["days_of_stock"], "bucket": a["risk"]["bucket"], "risk_label": a["risk"]["label"], "confidence": a["forecast"]["confidence"], "forecast_28": a["forecast"]["forecast_28"], "forecast_30": a["forecast"]["forecast_30"], "forecast_60": a["forecast"]["forecast_60"], "forecast_90": a["forecast"]["forecast_90"], "recommended_qty": a["recommendation"]["recommended_qty"], "reorder_by_date": a["recommendation"]["reorder_by_date"], "lead_time_days": a["sku"]["lead_time_days"], "supplier_id": a["sku"].get("supplier_id"), "supplier_name": sup_map.get(a["sku"].get("supplier_id"), "")})
     if risk and risk != "all":
         items = [i for i in items if i["bucket"] == risk]
     if q:
         ql = q.lower()
         items = [i for i in items if ql in i["name"].lower() or ql in i["sku_id"].lower() or ql in i["category"].lower()]
-
     def sort_key(i):
-        if sort == "stock_asc":
-            return i["current_stock"]
-        if sort == "stock_desc":
-            return -i["current_stock"]
-        if sort == "revenue_desc":
-            return -i["revenue_30d"]
-        if sort == "days_asc":
-            return i["days_of_stock"]
-        if sort == "days_desc":
-            return -i["days_of_stock"]
-        if sort == "recommended_desc":
-            return -i["recommended_qty"]
-        if sort == "confidence_desc":
-            return -i["confidence"]
+        if sort == "stock_asc": return i["current_stock"]
+        if sort == "stock_desc": return -i["current_stock"]
+        if sort == "revenue_desc": return -i["revenue_30d"]
+        if sort == "days_asc": return i["days_of_stock"]
+        if sort == "days_desc": return -i["days_of_stock"]
+        if sort == "recommended_desc": return -i["recommended_qty"]
+        if sort == "confidence_desc": return -i["confidence"]
         return i["name"].lower()
-
     items.sort(key=sort_key)
     total = len(items)
     start = (page - 1) * page_size
-    end = start + page_size
-    paged = items[start:end]
-    categories = sorted({p["category"] for p in await db.products.find({}, {"_id": 0, "category": 1}).to_list(500)})
+    paged = items[start:start + page_size]
+    categories = sorted({p["category"] for p in await db.products.find({"brand_id": brand}, {"_id": 0, "category": 1}).to_list(2000)})
     return {"items": paged, "total": total, "page": page, "page_size": page_size, "page_count": max(1, (total + page_size - 1) // page_size), "categories": categories}
 
 
 @products_router.get("/{sku_id}")
 async def product_detail(sku_id: str, user: dict = Depends(get_current_user)):
-    sku = await db.products.find_one({"id": sku_id}, {"_id": 0})
+    brand = brand_of(user)
+    sku = await db.products.find_one({"id": sku_id, "brand_id": brand}, {"_id": 0})
     if not sku:
         raise HTTPException(status_code=404, detail="SKU not found")
     a = await build_full_sku_analytics(db, sku)

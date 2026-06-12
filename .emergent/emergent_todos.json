@@ -1,10 +1,6 @@
 [
   {
-    "content": "Phase 1: Build POC script for SKU seeding + forecasting + recommendations + risk classification",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 1: Validate POC outputs look credible",
+    "content": "Phase 1: POC core logic (forecasting, recommendations, risk)",
     "status": "completed"
   },
   {
@@ -21,10 +17,10 @@
   },
   {
     "content": "Phase 2: End-to-end testing with testing_agent_v3",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
-    "content": "Phase 3: Hardening + polish based on test findings",
+    "content": "Phase 3: Optional hardening + polish (if user requests)",
     "status": "pending"
   }
 ]

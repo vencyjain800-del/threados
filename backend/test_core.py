@@ -359,7 +359,7 @@ def main() -> None:
     for sku in skus:
         rows = history[sku["id"]]
         assert len(rows) == 90, f"{sku['id']} expected 90 days, got {len(rows)}"
-    print(f"[PASS] Generated 90 days of sales history for every SKU")
+    print("[PASS] Generated 90 days of sales history for every SKU")
 
     # Run forecasting + recommendations + risk
     enriched: list[dict[str, Any]] = []

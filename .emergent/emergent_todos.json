@@ -9,26 +9,22 @@
   },
   {
     "content": "Phase 2: Get design guidelines from design_agent",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Phase 2: Build backend (services, seed, endpoints)",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "Phase 2: Build frontend (layout, dashboard, inventory, SKU detail, recommendations, risks)",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "Phase 2: End-to-end testing with testing_agent_v3",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
-    "content": "Phase 3: Hardening + polish (states, explanations, CSV, filters)",
-    "status": "pending"
-  },
-  {
-    "content": "Phase 4: Auth - demo login, JWT, route protection",
+    "content": "Phase 3: Hardening + polish based on test findings",
     "status": "pending"
   }
 ]

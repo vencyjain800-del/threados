@@ -1,0 +1,55 @@
+import { NavLink } from "react-router-dom";
+import { LayoutDashboard, Boxes, LineChart, ShoppingBag, ShieldAlert } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const NAV = [
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "sidebar-nav-dashboard" },
+  { to: "/inventory", label: "Inventory", icon: Boxes, testid: "sidebar-nav-inventory" },
+  { to: "/forecasting", label: "Forecasting", icon: LineChart, testid: "sidebar-nav-forecasting" },
+  { to: "/recommendations", label: "Recommendations", icon: ShoppingBag, testid: "sidebar-nav-recommendations" },
+  { to: "/risks", label: "Risk centre", icon: ShieldAlert, testid: "sidebar-nav-risks" },
+];
+
+export default function Sidebar() {
+  return (
+    <aside className="hidden md:flex w-[264px] shrink-0 border-r border-border bg-card flex-col">
+      <div className="h-14 flex items-center px-5 border-b border-border">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-md bg-primary text-primary-foreground grid place-items-center font-display font-semibold">
+            T
+          </div>
+          <div className="font-display text-base font-semibold tracking-tight">ThreadOS</div>
+        </div>
+      </div>
+      <nav className="px-3 py-4 space-y-1" data-testid="sidebar-nav">
+        <div className="px-3 pb-2 text-[10px] tracking-[0.12em] uppercase text-muted-foreground/70">
+          Operations
+        </div>
+        {NAV.map(({ to, label, icon: Icon, testid }) => (
+          <NavLink
+            key={to}
+            to={to}
+            data-testid={testid}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors",
+                isActive && "bg-muted text-foreground border border-border"
+              )
+            }
+          >
+            <Icon className="h-4 w-4" />
+            <span>{label}</span>
+          </NavLink>
+        ))}
+      </nav>
+      <div className="mt-auto p-4 border-t border-border">
+        <div className="rounded-lg border border-border bg-muted/40 p-3">
+          <div className="text-xs font-medium text-foreground">Demo workspace</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            Realistic data for founder demos and validation. Live integrations coming soon.
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}

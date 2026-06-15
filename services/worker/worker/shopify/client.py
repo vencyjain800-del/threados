@@ -280,7 +280,7 @@ class ShopifyClient:
             "status": status,
             "fields": (
                 "id,created_at,financial_status,source_name,"
-                "total_discounts,line_items"
+                "total_discounts,line_items,refunds"
             ),
         }
         if created_at_min:
@@ -385,6 +385,17 @@ def parse_product(p: dict[str, Any]) -> ProductRecord:
 
 
 def parse_order(o: dict[str, Any]) -> OrderRecord:
+    # Aggregate refunded quantities per line item across all refunds on this order.
+    # Shopify embeds refund_line_items inside each refund; a single line item can
+    # appear across multiple refunds (e.g. two separate partial refunds).
+    refund_map: dict[int, int] = {}
+    for refund in o.get("refunds", []):
+        for rli in refund.get("refund_line_items", []):
+            li_id = rli.get("line_item_id")
+            qty = int(rli.get("quantity") or 0)
+            if li_id is not None:
+                refund_map[li_id] = refund_map.get(li_id, 0) + qty
+
     line_items = [
         OrderLineItemRecord(
             shopify_id=li["id"],
@@ -402,4 +413,5 @@ def parse_order(o: dict[str, Any]) -> OrderRecord:
         source_name=o.get("source_name") or None,
         total_discounts=Decimal(str(o.get("total_discounts") or "0")),
         line_items=line_items,
+        refund_map=refund_map,
     )

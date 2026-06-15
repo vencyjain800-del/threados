@@ -156,7 +156,10 @@ async def get_product(
         product = (await db.execute(stmt)).scalar_one_or_none()
 
         if product is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "catalogue.product_not_found", "message": "Product not found"},
+            )
 
         await _attach_inventory(db, [product])
 
@@ -217,7 +220,13 @@ async def list_collection_products(
         )
         collection = (await db.execute(coll_stmt)).scalar_one_or_none()
         if collection is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "catalogue.collection_not_found",
+                    "message": "Collection not found",
+                },
+            )
 
         # Count products in collection
         count_stmt = (

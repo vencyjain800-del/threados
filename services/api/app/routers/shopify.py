@@ -41,7 +41,10 @@ async def install(
     redis: Annotated[aioredis.Redis, Depends(get_redis)],  # type: ignore[type-arg]
 ) -> RedirectResponse:
     if not validate_shop_domain(shop):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid shop domain")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "shopify.invalid_shop_domain", "message": "Invalid shop domain"},
+        )
 
     state = await generate_state(redis, shop)
     install_url = build_install_url(shop, state)
@@ -62,16 +65,25 @@ async def callback(
     params = dict(request.query_params)
 
     if not validate_shop_domain(shop):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid shop domain")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "shopify.invalid_shop_domain", "message": "Invalid shop domain"},
+        )
 
     if not verify_hmac(params):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="HMAC verification failed",
+            detail={
+                "code": "shopify.hmac_verification_failed",
+                "message": "HMAC verification failed",
+            },
         )
 
     if not await verify_state(redis, state, shop):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="State mismatch")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "shopify.state_mismatch", "message": "State mismatch"},
+        )
 
     token_data = await exchange_code(shop, code)
     access_token = token_data["access_token"]
@@ -82,7 +94,10 @@ async def callback(
 
     brand_id = session.brand_id
     if not brand_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No active brand")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "shopify.no_active_brand", "message": "No active brand"},
+        )
 
     async with system_session() as db:
         existing = await db.execute(
@@ -215,7 +230,10 @@ async def disconnect(
     """
     brand_id = session.brand_id
     if not brand_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No active brand")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "shopify.no_active_brand", "message": "No active brand"},
+        )
 
     async with system_session() as db:
         result = await db.execute(
@@ -228,7 +246,10 @@ async def disconnect(
         if not conn:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="No active Shopify connection",
+                detail={
+                    "code": "shopify.no_active_connection",
+                    "message": "No active Shopify connection",
+                },
             )
 
         conn.uninstalled_at = datetime.now(UTC)

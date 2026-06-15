@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.db.session import system_session
 from app.deps.deps import require_auth
+from app.deps.rate_limit import login_limiter, signup_limiter
 from app.models.audit import AuditLog
 from app.models.tenancy import Brand, BrandUser, User, UserRole
 from app.models.tenancy import Session as DbSession
@@ -22,12 +23,23 @@ from app.security.sessions import create_session
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=MeResponse)
+@router.post(
+    "/signup",
+    status_code=status.HTTP_201_CREATED,
+    response_model=MeResponse,
+    dependencies=[Depends(signup_limiter)],
+)
 async def signup(body: SignUpRequest, response: Response):
     async with system_session() as db:
         existing = await db.execute(select(User).where(User.email == body.email.lower()))
         if existing.scalar_one_or_none():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "auth.email_already_registered",
+                    "message": "Email already registered",
+                },
+            )
 
         user = User(
             email=body.email.lower(),
@@ -58,14 +70,21 @@ async def signup(body: SignUpRequest, response: Response):
     )
 
 
-@router.post("/login", response_model=MeResponse)
+@router.post(
+    "/login",
+    response_model=MeResponse,
+    dependencies=[Depends(login_limiter)],
+)
 async def login(body: LoginRequest, response: Response):
     async with system_session() as db:
         result = await db.execute(select(User).where(User.email == body.email.lower()))
         user = result.scalar_one_or_none()
 
         if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"code": "auth.invalid_credentials", "message": "Invalid credentials"},
+            )
 
         bu_result = await db.execute(
             select(BrandUser).where(BrandUser.user_id == user.id)
@@ -144,7 +163,13 @@ async def switch_brand(
         )
         bu = result.scalar_one_or_none()
         if not bu:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this brand")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "auth.not_member_of_brand",
+                    "message": "Not a member of this brand",
+                },
+            )
 
         s_result = await db.execute(
             select(DbSession).where(DbSession.id == session.id)

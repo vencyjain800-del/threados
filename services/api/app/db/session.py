@@ -10,8 +10,8 @@ from app.config import settings
 # Subject to Row-Level Security. Used for all tenant-scoped data queries.
 engine = create_async_engine(
     settings.database_url,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
     pool_pre_ping=True,
     echo=settings.app_env == "development",
 )

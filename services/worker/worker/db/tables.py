@@ -94,6 +94,7 @@ order_line_items = Table(
     Column("quantity", Integer, nullable=False),
     Column("unit_price", Numeric(12, 2)),
     Column("discount", Numeric(12, 2), nullable=False),
+    Column("refunded_qty", Integer, nullable=False, server_default="0"),
 )
 
 inventory_levels = Table(
@@ -150,6 +151,65 @@ forecasts = Table(
         "variant_id", "forecast_date", "run_date",
         name="uq_forecasts_variant_date_run",
     ),
+)
+
+# ── Inventory intelligence tables (written by recommendations.py) ─────────────
+
+inventory_settings = Table(
+    "inventory_settings",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("brand_id", UUID(as_uuid=True), nullable=False),
+    Column("default_lead_time", Integer, nullable=False),
+    Column("target_cover_days", Integer, nullable=False),
+    Column("review_period_days", Integer, nullable=False),
+    Column("service_level", Numeric(4, 3), nullable=False),
+    Column("dead_stock_threshold_days", Integer, nullable=False),
+)
+
+variant_settings = Table(
+    "variant_settings",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("brand_id", UUID(as_uuid=True), nullable=False),
+    Column("variant_id", UUID(as_uuid=True), nullable=False),
+    Column("lead_time_days", Integer),
+    Column("target_cover_days", Integer),
+    Column("cost_price", Numeric(10, 2)),
+    Column("supplier_name", Text),
+)
+
+inventory_recommendations = Table(
+    "inventory_recommendations",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("brand_id", UUID(as_uuid=True), nullable=False),
+    Column("variant_id", UUID(as_uuid=True), nullable=False),
+    Column("run_date", Date, nullable=False),
+    Column("run_at", DateTime(timezone=True), nullable=False),
+    Column("available", Integer, nullable=False),
+    Column("lead_time_days", Integer, nullable=False),
+    Column("target_cover_days", Integer, nullable=False),
+    Column("review_period_days", Integer, nullable=False),
+    Column("z_score", Numeric(6, 3), nullable=False),
+    Column("in_stock_days_90d", Integer, nullable=False),
+    Column("avg_daily_demand", Numeric(10, 4), nullable=False),
+    Column("demand_std_daily", Numeric(10, 4), nullable=False),
+    Column("days_cover", Numeric(10, 2)),
+    Column("stockout_date", Date),
+    Column("safety_stock", Numeric(10, 2), nullable=False),
+    Column("reorder_point", Numeric(10, 2), nullable=False),
+    Column("recommended_order_qty", Integer),
+    Column("is_emergency_order", Boolean, nullable=False),
+    Column("overstock_units", Integer),
+    Column("excess_cover_days", Numeric(10, 2)),
+    Column("dead_stock", Boolean, nullable=False),
+    Column("risk_tier", Text, nullable=False),
+    Column("recommended_action", Text, nullable=False),
+    Column("revenue_at_risk", Numeric(12, 2)),
+    Column("capital_trapped", Numeric(12, 2)),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("variant_id", "run_date", name="uq_inv_rec_variant_date"),
 )
 
 # Read-only tables (only used for SELECT in the worker)

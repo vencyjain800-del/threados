@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
+    # Database pool (main runtime engine only; auth engine is hardcoded at 5/10)
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+
     # Auth
     session_secret: str
     session_ttl_hours: int = 336
@@ -69,6 +73,31 @@ class Settings(BaseSettings):
     @property
     def cookie_secure(self) -> bool:
         return self.app_env != "development"
+
+    def validate_required_for_shopify(self) -> list[str]:
+        """Return a list of missing env var names required for Shopify OAuth."""
+        missing: list[str] = []
+        if not self.shopify_api_key:
+            missing.append("SHOPIFY_API_KEY")
+        if not self.shopify_api_secret:
+            missing.append("SHOPIFY_API_SECRET")
+        if not self.shopify_app_url:
+            missing.append("SHOPIFY_APP_URL")
+        if not self.shopify_redirect_uri:
+            missing.append("SHOPIFY_REDIRECT_URI")
+        if not self.kms_key_id:
+            missing.append("KMS_KEY_ID")
+        return missing
+
+    def validate_required_for_auth(self) -> list[str]:
+        """Return a list of missing env var names required for auth security."""
+        missing: list[str] = []
+        # Minimum 32-char entropy for secret values.
+        if len(self.session_secret) < 32:
+            missing.append("SESSION_SECRET (must be ≥32 chars)")
+        if len(self.csrf_secret) < 32:
+            missing.append("CSRF_SECRET (must be ≥32 chars)")
+        return missing
 
 
 settings = Settings()  # type: ignore[call-arg]

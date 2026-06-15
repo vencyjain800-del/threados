@@ -13,6 +13,17 @@ function DashboardPageInner() {
   const [shopifyStatus, setShopifyStatus] = useState<ShopifyStatusResponse | null>(null);
   const [recentRuns, setRecentRuns] = useState<SyncRunResponse[]>([]);
   const [banner, setBanner] = useState<string | null>(null);
+  const [dataError, setDataError] = useState<string | null>(null);
+
+  const retryDataLoad = () => {
+    setDataError(null);
+    shopify.status()
+      .then(setShopifyStatus)
+      .catch(() => setDataError("Could not load dashboard data. Check your connection and try again."));
+    sync.listRuns({ limit: 5 })
+      .then((res) => setRecentRuns(res.items))
+      .catch(() => null);
+  };
 
   useEffect(() => {
     if (searchParams.get("shopify") === "connected") {
@@ -25,7 +36,7 @@ function DashboardPageInner() {
 
     shopify.status()
       .then(setShopifyStatus)
-      .catch(() => null);
+      .catch(() => setDataError("Could not load dashboard data. Check your connection and try again."));
 
     sync.listRuns({ limit: 5 })
       .then((res) => setRecentRuns(res.items))
@@ -37,7 +48,17 @@ function DashboardPageInner() {
     <div className="min-h-screen bg-gray-50">
       {/* Navbar */}
       <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-        <span className="text-lg font-bold text-brand-700">ThreadOS</span>
+        <div className="flex items-center gap-6">
+          <span className="text-lg font-bold text-brand-700">ThreadOS</span>
+          <div className="flex items-center gap-5">
+            <Link href="/dashboard" className="text-sm text-brand-600 font-medium">
+              Dashboard
+            </Link>
+            <Link href="/inventory" className="text-sm text-gray-600 hover:text-gray-900">
+              Inventory
+            </Link>
+          </div>
+        </div>
         <div className="flex items-center gap-4">
           <Link href="/settings" className="text-sm text-gray-600 hover:text-gray-900">
             Settings
@@ -56,6 +77,18 @@ function DashboardPageInner() {
           <div className="mb-6 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800 flex items-center justify-between">
             <span>{banner}</span>
             <button onClick={() => setBanner(null)} className="text-green-600 hover:text-green-800">×</button>
+          </div>
+        )}
+
+        {dataError && (
+          <div className="mb-6 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center justify-between">
+            <span>{dataError}</span>
+            <button
+              onClick={retryDataLoad}
+              className="ml-4 text-sm font-medium text-red-700 underline hover:text-red-900 whitespace-nowrap"
+            >
+              Retry
+            </button>
           </div>
         )}
 

@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric
 from sqlalchemy.dialects.postgresql import UUID
@@ -20,7 +20,7 @@ class InventoryLevel(Base):
     location_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     available: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(tz=UTC)
     )
 
 

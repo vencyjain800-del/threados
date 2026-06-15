@@ -194,8 +194,125 @@ export interface SyncTriggerResponse {
   message: string;
 }
 
+// ── Forecasts ─────────────────────────────────────────────────────────────────
+
+export interface ForecastPointResponse {
+  forecast_date: string; // ISO date
+  predicted_units: string; // Decimal as string
+  lower_bound: string;
+  upper_bound: string;
+  model_name: string;
+}
+
+export interface ForecastListResponse {
+  variant_id: string;
+  run_date: string | null;
+  items: ForecastPointResponse[];
+  total: number;
+}
+
+export interface ForecastSummaryItemResponse {
+  variant_id: string;
+  sku: string | null;
+  variant_title: string | null;
+  product_title: string | null;
+  forecasted_units: string;
+  available_inventory: number;
+  stockout_risk: string;
+}
+
+export interface ForecastSummaryResponse {
+  run_date: string | null;
+  items: ForecastSummaryItemResponse[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+// ── Recommendations ───────────────────────────────────────────────────────────
+
+export interface RecommendationItemResponse {
+  id: string;
+  variant_id: string;
+  run_date: string; // ISO date
+  run_at: string; // ISO datetime
+  available: number;
+  lead_time_days: number;
+  target_cover_days: number;
+  review_period_days: number;
+  z_score: string;
+  in_stock_days_90d: number;
+  avg_daily_demand: string;
+  demand_std_daily: string;
+  days_cover: string | null;
+  stockout_date: string | null;
+  safety_stock: string;
+  reorder_point: string;
+  recommended_order_qty: number | null;
+  is_emergency_order: boolean;
+  overstock_units: number | null;
+  excess_cover_days: string | null;
+  dead_stock: boolean;
+  risk_tier: "dead" | "stockout" | "reorder" | "overstock" | "healthy";
+  recommended_action: string;
+  revenue_at_risk: string | null;
+  capital_trapped: string | null;
+  created_at: string;
+}
+
+export interface RecommendationListResponse {
+  run_date: string | null;
+  items: RecommendationItemResponse[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface TierCountResponse {
+  tier: string;
+  count: number;
+}
+
+export interface RecommendationSummaryResponse {
+  run_date: string | null;
+  total_variants: number;
+  tier_counts: TierCountResponse[];
+  total_revenue_at_risk: string;
+  total_capital_trapped: string;
+  emergency_orders: number;
+}
+
+export interface RecommendationDetailResponse {
+  latest: RecommendationItemResponse;
+  history: RecommendationItemResponse[];
+}
+
+// ── Inventory settings ────────────────────────────────────────────────────────
+
+export interface InventorySettingsResponse {
+  default_lead_time: number;
+  target_cover_days: number;
+  review_period_days: number;
+  service_level: string; // Decimal as string
+  dead_stock_threshold_days: number;
+  updated_at: string | null;
+}
+
+export interface InventorySettingsUpdateRequest {
+  default_lead_time: number;
+  target_cover_days: number;
+  review_period_days: number;
+  service_level: string;
+  dead_stock_threshold_days: number;
+}
+
 // ── API error shape ───────────────────────────────────────────────────────────
 
 export interface ApiErrorDetail {
   detail: string | { loc: (string | number)[]; msg: string; type: string }[];
+}
+
+export interface ErrorDetail {
+  code: string;
+  message: string;
 }

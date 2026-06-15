@@ -111,10 +111,11 @@ def run_post_sync_aggregation(brand_id: str) -> dict[str, int]:
 
     log.info("aggregation.post_sync.done", brand_id=brand_id, **counts)
 
-    # Chain: enqueue forecast job after aggregation.
-    # Failure here must never propagate back to the caller — the aggregation
+    # Chain: enqueue forecast then recommendations after aggregation.
+    # Failures here must never propagate back to the caller — the aggregation
     # itself has already succeeded and its result is committed.
     _enqueue_forecast(brand_id)
+    _enqueue_recommendations(brand_id)
 
     return counts
 
@@ -131,6 +132,20 @@ def _enqueue_forecast(brand_id: str) -> None:
         log.info("forecast.enqueued", brand_id=brand_id)
     except Exception as exc:
         log.warning("forecast.enqueue_failed", brand_id=brand_id, error=str(exc))
+
+
+def _enqueue_recommendations(brand_id: str) -> None:
+    """Enqueue run_recommendations for *brand_id*.
+
+    Enqueued independently of the forecast job — recommendations use
+    sales_daily directly and do not depend on the forecast output.
+    """
+    try:
+        q = get_default_queue()
+        q.enqueue("worker.jobs.recommendations.run_recommendations", brand_id)
+        log.info("recommendations.enqueued", brand_id=brand_id)
+    except Exception as exc:
+        log.warning("recommendations.enqueue_failed", brand_id=brand_id, error=str(exc))
 
 
 def schedule_nightly_aggregation() -> dict[str, int]:

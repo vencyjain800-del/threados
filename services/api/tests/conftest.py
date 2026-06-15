@@ -86,6 +86,7 @@ async def create_tables():
             "inventory_levels", "inventory_snapshots",
             "sales_daily",
             "forecasts",
+            "inventory_settings", "variant_settings", "inventory_recommendations",
         ]
         for table in data_tables:
             await conn.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
@@ -107,6 +108,7 @@ async def create_tables():
             "inventory_levels", "inventory_snapshots",
             "sales_daily",
             "forecasts",
+            "inventory_settings", "variant_settings", "inventory_recommendations",
         ]
         for table in brand_id_tables:
             await conn.execute(text(f"""
@@ -157,6 +159,26 @@ async def db() -> AsyncGenerator[AsyncSession, None]:
     async with TestSession() as session, session.begin():
         yield session
         await session.rollback()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _disable_rate_limits():
+    """Disable rate limiting for all tests.
+
+    The production RateLimiter uses Redis, which may be running locally and would
+    exhaust per-IP limits across the test suite (all requests share IP "unknown").
+    Tests that need to verify 429 behaviour override specific limiters themselves.
+    """
+    from app.deps.rate_limit import login_limiter, signup_limiter
+
+    async def _noop() -> None:
+        pass
+
+    app.dependency_overrides[signup_limiter] = _noop
+    app.dependency_overrides[login_limiter] = _noop
+    yield
+    app.dependency_overrides.pop(signup_limiter, None)
+    app.dependency_overrides.pop(login_limiter, None)
 
 
 @pytest_asyncio.fixture

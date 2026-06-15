@@ -401,4 +401,4 @@ def test_sync_orders_forwards_updated_at_min(mock_rli, mock_uo, mock_ws) -> None
 
     _sync_orders(BRAND_ID, mock_client, {}, updated_at_min=SINCE)
 
-    mock_client.iter_orders.assert_called_once_with(updated_at_min=SINCE)
+    mock_client.iter_orders.assert_called_once_with(created_at_min=None, updated_at_min=SINCE)

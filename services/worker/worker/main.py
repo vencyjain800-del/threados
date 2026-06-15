@@ -20,10 +20,13 @@ restarting the worker does not create duplicate scheduled entries.
 """
 import logging
 import os
+import traceback as _traceback
+from typing import Any
 
 import sentry_sdk
 import structlog
 from rq import Worker
+from rq.job import Job
 
 from worker.queues import get_redis
 
@@ -42,6 +45,29 @@ log = structlog.get_logger()
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:
     sentry_sdk.init(dsn=SENTRY_DSN, environment=os.environ.get("APP_ENV", "development"))
+
+
+def _handle_job_failure(
+    job: Job,
+    exc_type: type[BaseException] | None,
+    exc_value: BaseException | None,
+    tb: Any,
+) -> None:
+    """Structured ERROR log when a job fails.
+
+    RQ calls this before moving the job to FailedJobRegistry. Returning None
+    lets the default exception handler chain continue — the job is still moved
+    to the failed queue.
+    """
+    log.error(
+        "job.failed",
+        job_id=job.id,
+        func_name=job.func_name,
+        queue=job.origin,
+        exc_type=exc_type.__name__ if exc_type is not None else "Unknown",
+        exc_message=str(exc_value) if exc_value is not None else "",
+        traceback="".join(_traceback.format_tb(tb)) if tb is not None else "",
+    )
 
 
 def _register_scheduled_jobs() -> None:
@@ -85,7 +111,7 @@ def main() -> None:
     conn = get_redis()
     queues = ["high", "default"]
     _register_scheduled_jobs()
-    worker = Worker(queues, connection=conn)
+    worker = Worker(queues, connection=conn, exception_handlers=[_handle_job_failure])
     worker.work(with_scheduler=True)
 
 

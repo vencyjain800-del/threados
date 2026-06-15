@@ -33,6 +33,7 @@ Excluded from Phase B / C
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -71,6 +72,7 @@ def run_backfill(brand_id: str, sync_run_id: str) -> None:
     """
     _bid = uuid.UUID(brand_id)
     _rid = uuid.UUID(sync_run_id)
+    _t0 = time.monotonic()
     log.info("sync.backfill.start", brand_id=brand_id, sync_run_id=sync_run_id)
 
     # Load connection info before marking as running — fail fast if missing
@@ -121,7 +123,7 @@ def run_backfill(brand_id: str, sync_run_id: str) -> None:
             finished_at=datetime.now(tz=timezone.utc),
             entities=counts,
         )
-        log.info("sync.backfill.done", brand_id=brand_id, **counts)
+        log.info("sync.backfill.done", brand_id=brand_id, **counts, duration_s=round(time.monotonic() - _t0, 2))
 
         # C4: chain aggregation — runs as a separate job so its failure is
         # isolated from the backfill's succeeded status.
@@ -150,6 +152,7 @@ def run_incremental(brand_id: str, sync_run_id: str) -> None:
     """
     _bid = uuid.UUID(brand_id)
     _rid = uuid.UUID(sync_run_id)
+    _t0 = time.monotonic()
 
     # Determine cut-off *before* marking as running so the timestamp is stable
     since = _get_last_success_time(_bid)
@@ -207,7 +210,7 @@ def run_incremental(brand_id: str, sync_run_id: str) -> None:
             finished_at=datetime.now(tz=timezone.utc),
             entities=counts,
         )
-        log.info("sync.incremental.done", brand_id=brand_id, **counts)
+        log.info("sync.incremental.done", brand_id=brand_id, **counts, duration_s=round(time.monotonic() - _t0, 2))
 
         # C4: chain aggregation after successful incremental sync.
         _enqueue_post_sync_aggregation(brand_id)

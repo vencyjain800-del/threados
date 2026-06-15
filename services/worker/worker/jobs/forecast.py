@@ -37,6 +37,7 @@ parameter limit and avoid single-round-trip memory spikes.
 from __future__ import annotations
 
 import math
+import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
@@ -67,6 +68,7 @@ def run_forecast(brand_id: str) -> dict[str, int]:
     """
     _bid = uuid.UUID(brand_id)
     run_date = datetime.now(tz=timezone.utc).date()
+    _t0 = time.monotonic()
 
     log.info("forecast.start", brand_id=brand_id, run_date=str(run_date))
 
@@ -81,7 +83,13 @@ def run_forecast(brand_id: str) -> dict[str, int]:
         return {"forecasts_upserted": 0}
 
     count = _upsert_forecasts(rows)
-    log.info("forecast.done", brand_id=brand_id, run_date=str(run_date), rows=count)
+    log.info(
+        "forecast.done",
+        brand_id=brand_id,
+        run_date=str(run_date),
+        rows=count,
+        duration_s=round(time.monotonic() - _t0, 2),
+    )
     return {"forecasts_upserted": count}
 
 
@@ -220,12 +228,12 @@ def _upsert_forecasts(rows: list[_ForecastRow]) -> int:
     """)
 
     total = 0
-    # Process in chunks to avoid exceeding psycopg3 parameter limits
     for i in range(0, len(rows), _UPSERT_CHUNK):
         chunk = rows[i : i + _UPSERT_CHUNK]
         with worker_session() as db:
-            result = db.execute(sql, chunk)          # executemany via list of dicts
-            total += len(result.fetchall())
+            for row_dict in chunk:
+                result = db.execute(sql, row_dict)
+                total += len(result.fetchall())
             db.commit()
 
     return total

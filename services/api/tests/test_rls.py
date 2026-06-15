@@ -18,6 +18,7 @@ Architecture notes
   state from _set_tenant() never leaks into subsequent tests.
 """
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -89,7 +90,7 @@ async def test_brand_b_cannot_see_brand_a_orders(db: AsyncSession, two_brands):
     order_a = Order(
         brand_id=brand_a.id,
         shopify_id=12345,
-        ordered_at=__import__("datetime").datetime.utcnow(),
+        ordered_at=datetime.now(tz=UTC),
     )
     db.add(order_a)
     await db.flush()

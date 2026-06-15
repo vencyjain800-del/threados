@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import BYTEA, UUID
@@ -29,7 +29,7 @@ class Brand(Base):
     consent_scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     onboarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(tz=UTC)
     )
 
     brand_users: Mapped[list["BrandUser"]] = relationship("BrandUser", back_populates="brand")
@@ -44,7 +44,7 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(tz=UTC)
     )
 
     brand_users: Mapped[list["BrandUser"]] = relationship("BrandUser", back_populates="user")
@@ -64,7 +64,7 @@ class BrandUser(Base):
         PgEnum(UserRole, name="user_role", create_type=False), nullable=False, default=UserRole.owner
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(tz=UTC)
     )
 
     brand: Mapped["Brand"] = relationship("Brand", back_populates="brand_users")
@@ -84,10 +84,10 @@ class Session(Base):
     token_hash: Mapped[bytes] = mapped_column(BYTEA, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(tz=UTC)
     )
     last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(tz=UTC)
     )
 
     user: Mapped["User"] = relationship("User", back_populates="sessions")

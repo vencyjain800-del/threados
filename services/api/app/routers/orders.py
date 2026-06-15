@@ -104,6 +104,9 @@ async def get_order(
         order = (await db.execute(stmt)).scalar_one_or_none()
 
     if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "orders.order_not_found", "message": "Order not found"},
+        )
 
     return _serialise_order(order)

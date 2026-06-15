@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import sentry_sdk
 import structlog
 from fastapi import FastAPI, Request
@@ -9,6 +11,8 @@ from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from app.config import settings
 from app.routers import auth, catalogue, health, inventory, orders, shopify
 from app.routers import forecasts as forecasts_router
+from app.routers import recommendations as recommendations_router
+from app.routers import settings as settings_router
 from app.routers import sync as sync_router
 
 structlog.configure(
@@ -27,12 +31,38 @@ if settings.sentry_dsn:
     )
 
 
+def _check_startup_config() -> None:
+    """Log warnings for missing env vars at startup so operators notice immediately."""
+    shopify_missing = settings.validate_required_for_shopify()
+    auth_missing = settings.validate_required_for_auth()
+
+    if shopify_missing:
+        log.warning(
+            "startup_config_missing_shopify",
+            missing=shopify_missing,
+            hint="Shopify OAuth will fail until these are set.",
+        )
+    if auth_missing:
+        log.error(
+            "startup_config_insecure_auth",
+            missing=auth_missing,
+            hint="Auth secrets are too short — set secure random values before accepting traffic.",
+        )
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):  # noqa: ARG001
+    _check_startup_config()
+    yield
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="ThreadOS API",
         version="0.1.0",
         docs_url="/docs" if not settings.is_production else None,
         redoc_url=None,
+        lifespan=_lifespan,
     )
 
     app.add_middleware(
@@ -66,6 +96,8 @@ def create_app() -> FastAPI:
     app.include_router(inventory.router)
     app.include_router(sync_router.router)
     app.include_router(forecasts_router.router)
+    app.include_router(recommendations_router.router)
+    app.include_router(settings_router.router)
 
     return app
 

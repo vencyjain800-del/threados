@@ -48,12 +48,32 @@ VARIANT_B = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _make_db_session(*, fetchall_rows: list | None = None) -> MagicMock:
-    """Return a mock synchronous Session context manager."""
+    """Return a mock synchronous Session context manager.
+
+    fetchall_rows controls what execute().fetchall() returns.  When the list
+    has more than one element it is assumed the caller is the history-load path
+    (returns all rows in one shot).  For the upsert path each call returns
+    exactly [MagicMock()] — use _make_upsert_db() instead.
+    """
     rows = fetchall_rows if fetchall_rows is not None else []
     session = MagicMock()
     session.__enter__ = MagicMock(return_value=session)
     session.__exit__ = MagicMock(return_value=False)
     session.execute.return_value.fetchall.return_value = rows
+    return session
+
+
+def _make_upsert_db(n_rows: int) -> MagicMock:
+    """Return a mock upsert session where each execute().fetchall() returns 1 row.
+
+    The upsert loop now calls execute() + fetchall() once per row, so the mock
+    must return [MagicMock()] on every call rather than all rows on the first.
+    """
+    session = MagicMock()
+    session.__enter__ = MagicMock(return_value=session)
+    session.__exit__ = MagicMock(return_value=False)
+    # side_effect: each fetchall() call returns exactly one row
+    session.execute.return_value.fetchall.side_effect = [[MagicMock()] for _ in range(n_rows)]
     return session
 
 
@@ -188,11 +208,8 @@ def test_run_forecast_no_history_returns_zero() -> None:
 def test_run_forecast_returns_upserted_count() -> None:
     """run_forecast with 1 variant (14 days history) returns 28."""
     history_rows = [_make_history_row(VARIANT_A, i + 1) for i in range(14)]
-    # Two DB interactions: SELECT (history) + INSERT x1 chunk (forecast rows)
-    upsert_rows = [MagicMock() for _ in range(28)]  # 28 RETURNING rows
-
-    load_db = _make_db_session(fetchall_rows=history_rows)
-    upsert_db = _make_db_session(fetchall_rows=upsert_rows)
+    load_db   = _make_db_session(fetchall_rows=history_rows)
+    upsert_db = _make_upsert_db(28)
 
     call_count = 0
 
@@ -214,10 +231,8 @@ def test_run_forecast_two_variants_upserted_count() -> None:
         [_make_history_row(VARIANT_A, 5) for _ in range(14)]
         + [_make_history_row(VARIANT_B, 3) for _ in range(14)]
     )
-    upsert_rows = [MagicMock() for _ in range(56)]
-
-    load_db = _make_db_session(fetchall_rows=history_rows)
-    upsert_db = _make_db_session(fetchall_rows=upsert_rows)
+    load_db   = _make_db_session(fetchall_rows=history_rows)
+    upsert_db = _make_upsert_db(56)
 
     call_count = 0
 
@@ -231,6 +246,34 @@ def test_run_forecast_two_variants_upserted_count() -> None:
         result = run_forecast(BRAND_STR)
 
     assert result == {"forecasts_upserted": 56}
+
+
+def test_run_forecast_logs_duration() -> None:
+    """run_forecast emits a forecast.done log with a float duration_s field."""
+    history_rows = [_make_history_row(VARIANT_A, i + 1) for i in range(14)]
+    load_db = _make_db_session(fetchall_rows=history_rows)
+    upsert_db = _make_upsert_db(28)
+
+    call_count = 0
+
+    def _side_effect():
+        nonlocal call_count
+        call_count += 1
+        return load_db if call_count == 1 else upsert_db
+
+    with patch("worker.jobs.forecast.worker_session", side_effect=_side_effect):
+        with patch("worker.jobs.forecast.log") as mock_log:
+            from worker.jobs.forecast import run_forecast
+            run_forecast(BRAND_STR)
+
+    done_calls = [
+        call for call in mock_log.info.call_args_list
+        if call.args and call.args[0] == "forecast.done"
+    ]
+    assert len(done_calls) == 1
+    kw = done_calls[0].kwargs
+    assert "duration_s" in kw
+    assert isinstance(kw["duration_s"], float)
 
 
 def test_run_forecast_short_history_fallback() -> None:
@@ -253,9 +296,8 @@ def test_run_forecast_idempotent() -> None:
     def _session_factory():
         calls.append(1)
         idx = len(calls)
-        # odd calls = history load, even calls = upsert
-        rows = history_rows if idx % 2 == 1 else [MagicMock() for _ in range(28)]
-        return _make_db_session(fetchall_rows=rows)
+        # odd calls = history load, even calls = upsert (1 row returned per execute)
+        return _make_db_session(fetchall_rows=history_rows) if idx % 2 == 1 else _make_upsert_db(28)
 
     with patch("worker.jobs.forecast.worker_session", side_effect=_session_factory):
         from worker.jobs.forecast import run_forecast

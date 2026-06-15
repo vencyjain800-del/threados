@@ -90,7 +90,10 @@ async def get_sync_run(
         run = (await db.execute(stmt)).scalar_one_or_none()
 
     if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sync run not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "sync.sync_run_not_found", "message": "Sync run not found"},
+        )
 
     return SyncRunSchema(
         id=run.id,

@@ -74,6 +74,8 @@ class OrderRecord:
     source_name: str | None  # "web", "pos", "iphone", etc.
     total_discounts: Decimal
     line_items: list[OrderLineItemRecord] = field(default_factory=list)
+    # shopify_line_item_id → total refunded qty across all refunds on this order
+    refund_map: dict[int, int] = field(default_factory=dict)
 
 
 @dataclass

@@ -23,6 +23,14 @@ import type {
   SyncRunListResponse,
   SyncRunResponse,
   SyncTriggerResponse,
+  ForecastListResponse,
+  ForecastSummaryResponse,
+  RecommendationListResponse,
+  RecommendationSummaryResponse,
+  RecommendationDetailResponse,
+  InventorySettingsResponse,
+  InventorySettingsUpdateRequest,
+  ErrorDetail,
 } from "@threados/shared-types";
 
 const API_URL =
@@ -32,7 +40,7 @@ class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
-    public readonly detail?: unknown
+    public readonly detail?: { detail?: ErrorDetail | null } | null
   ) {
     super(message);
     this.name = "ApiError";
@@ -218,6 +226,78 @@ export const sync = {
 
   trigger: () =>
     request<SyncTriggerResponse>("POST", "/sync/trigger"),
+};
+
+// ── Forecasts ─────────────────────────────────────────────────────────────────
+
+export const forecasts = {
+  get: (variantId: string, params?: { days?: number; run_date?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.days) qs.set("days", String(params.days));
+    if (params?.run_date) qs.set("run_date", params.run_date);
+    const query = qs.toString();
+    return request<ForecastListResponse>(
+      "GET",
+      `/forecasts/${variantId}${query ? `?${query}` : ""}`,
+    );
+  },
+
+  summary: (params?: { page?: number; page_size?: number; run_date?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.page_size) qs.set("page_size", String(params.page_size));
+    if (params?.run_date) qs.set("run_date", params.run_date);
+    const query = qs.toString();
+    return request<ForecastSummaryResponse>(
+      "GET",
+      `/forecasts/summary${query ? `?${query}` : ""}`,
+    );
+  },
+};
+
+// ── Recommendations ───────────────────────────────────────────────────────────
+
+export const recommendations = {
+  list: (params?: {
+    page?: number;
+    page_size?: number;
+    risk_tier?: string;
+    run_date?: string;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.page_size) qs.set("page_size", String(params.page_size));
+    if (params?.risk_tier) qs.set("risk_tier", params.risk_tier);
+    if (params?.run_date) qs.set("run_date", params.run_date);
+    const query = qs.toString();
+    return request<RecommendationListResponse>(
+      "GET",
+      `/recommendations${query ? `?${query}` : ""}`,
+    );
+  },
+
+  summary: (params?: { run_date?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.run_date) qs.set("run_date", params.run_date);
+    const query = qs.toString();
+    return request<RecommendationSummaryResponse>(
+      "GET",
+      `/recommendations/summary${query ? `?${query}` : ""}`,
+    );
+  },
+
+  get: (variantId: string) =>
+    request<RecommendationDetailResponse>("GET", `/recommendations/${variantId}`),
+};
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+export const settings = {
+  getInventory: () =>
+    request<InventorySettingsResponse>("GET", "/settings/inventory"),
+
+  updateInventory: (body: InventorySettingsUpdateRequest) =>
+    request<InventorySettingsResponse>("PUT", "/settings/inventory", body),
 };
 
 export { ApiError };

@@ -113,12 +113,16 @@ def _line_item_row(
     order_uuid: uuid.UUID,
     variant_id_map: dict[int, uuid.UUID],
     li: OrderLineItemRecord,
+    refund_map: dict[int, int],
 ) -> dict[str, Any]:
     """Map an OrderLineItemRecord to a dict for INSERT into order_line_items.
 
     ``variant_id`` is resolved via ``variant_id_map`` (shopify_variant_id → internal UUID).
     If the variant was deleted in Shopify (``li.variant_shopify_id`` is None) or was not
     in the current sync batch, ``variant_id`` is stored as NULL.
+
+    ``refund_map`` maps Shopify line-item IDs to total refunded qty across all refunds on
+    this order, pre-computed by ``parse_order`` from the embedded ``refunds`` array.
     """
     resolved_variant_id: uuid.UUID | None = None
     if li.variant_shopify_id is not None:
@@ -132,6 +136,7 @@ def _line_item_row(
         "quantity": li.quantity,
         "unit_price": li.unit_price,
         "discount": li.total_discount,
+        "refunded_qty": refund_map.get(li.shopify_id, 0),
     }
 
 
@@ -319,7 +324,7 @@ def replace_order_line_items(
         if o_uuid is None:
             continue
         for li in o_rec.line_items:
-            rows.append(_line_item_row(brand_id, o_uuid, variant_id_map, li))
+            rows.append(_line_item_row(brand_id, o_uuid, variant_id_map, li, o_rec.refund_map))
 
     if rows:
         session.execute(pg_insert(order_line_items).values(rows))

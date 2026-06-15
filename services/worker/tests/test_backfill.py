@@ -217,7 +217,7 @@ def test_line_item_row_resolves_variant() -> None:
         unit_price=Decimal("29.99"),
         total_discount=Decimal("5.00"),
     )
-    row = _line_item_row(BRAND_ID, order_uuid, {100: v_uuid}, li)
+    row = _line_item_row(BRAND_ID, order_uuid, {100: v_uuid}, li, {})
 
     assert row["order_id"] == order_uuid
     assert row["variant_id"] == v_uuid
@@ -236,7 +236,7 @@ def test_line_item_row_deleted_variant_is_null() -> None:
         unit_price=Decimal("10.00"),
         total_discount=Decimal("0"),
     )
-    row = _line_item_row(BRAND_ID, uuid.uuid4(), {}, li)
+    row = _line_item_row(BRAND_ID, uuid.uuid4(), {}, li, {})
     assert row["variant_id"] is None
 
 
@@ -249,7 +249,7 @@ def test_line_item_row_unmapped_variant_is_null() -> None:
         unit_price=Decimal("10.00"),
         total_discount=Decimal("0"),
     )
-    row = _line_item_row(BRAND_ID, uuid.uuid4(), {}, li)
+    row = _line_item_row(BRAND_ID, uuid.uuid4(), {}, li, {})
     assert row["variant_id"] is None
 
 

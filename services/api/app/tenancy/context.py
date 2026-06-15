@@ -1,9 +1,9 @@
 import uuid
 
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.tenancy import BrandUser, Session as DbSession
+from app.models.tenancy import Session as DbSession
 
 
 async def resolve_brand(

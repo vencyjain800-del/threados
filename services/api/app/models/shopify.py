@@ -1,11 +1,11 @@
+import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import BYTEA, JSONB, UUID
 from sqlalchemy.dialects.postgresql import ENUM as PgEnum
-from sqlalchemy.dialects.postgresql import UUID, BYTEA, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-import enum
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
@@ -29,7 +29,7 @@ class ShopifyConnection(Base):
     access_token_enc: Mapped[bytes] = mapped_column(BYTEA, nullable=False)
     scopes: Mapped[str] = mapped_column(Text, nullable=False)
     installed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(tz=UTC)
     )
     uninstalled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     webhook_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
@@ -51,5 +51,5 @@ class SyncRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(tz=UTC)
     )

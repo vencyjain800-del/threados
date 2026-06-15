@@ -30,9 +30,8 @@ async def get_redis() -> AsyncGenerator[aioredis.Redis, None]:
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Tenant-scoped DB session (threados_app role, subject to RLS). Used for data routes."""
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            yield session
+    async with AsyncSessionLocal() as session, session.begin():
+        yield session
 
 
 async def require_auth(request: Request) -> DbSession:

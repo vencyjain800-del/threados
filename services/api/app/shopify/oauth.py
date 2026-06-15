@@ -7,8 +7,11 @@ from datetime import timedelta
 
 import httpx
 import redis.asyncio as aioredis
+import structlog
 
 from app.config import settings
+
+log = structlog.get_logger()
 
 _SHOP_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$")
 _NONCE_TTL = timedelta(minutes=10)
@@ -96,6 +99,9 @@ async def register_webhooks(shop: str, access_token: str) -> list[int]:
     base_url = f"https://{shop}/admin/api/{settings.shopify_api_version}"
     webhook_ids = []
 
+    # Topics that must succeed for the app to function correctly.
+    critical_topics = {"orders/create", "orders/updated", "inventory_levels/update", "products/update"}
+
     async with httpx.AsyncClient(timeout=15, headers=headers) as client:
         for topic in topics:
             payload = {
@@ -107,6 +113,33 @@ async def register_webhooks(shop: str, access_token: str) -> list[int]:
             }
             resp = await client.post(f"{base_url}/webhooks.json", json=payload)
             if resp.status_code == 201:
-                webhook_ids.append(resp.json()["webhook"]["id"])
+                webhook_id = resp.json()["webhook"]["id"]
+                webhook_ids.append(webhook_id)
+                log.info("webhook_registered", shop=shop, topic=topic, webhook_id=webhook_id)
+            elif resp.status_code == 422:
+                # 422 means the webhook already exists — treat as success.
+                log.info("webhook_already_exists", shop=shop, topic=topic)
+            else:
+                level = "error" if topic in critical_topics else "warning"
+                log.msg(
+                    level,
+                    "webhook_registration_failed",
+                    shop=shop,
+                    topic=topic,
+                    status=resp.status_code,
+                    body=resp.text[:200],
+                )
+
+    registered = len(webhook_ids)
+    total = len(topics)
+    if registered < total:
+        log.warning(
+            "webhook_registration_incomplete",
+            shop=shop,
+            registered=registered,
+            total=total,
+        )
+    else:
+        log.info("webhook_registration_complete", shop=shop, registered=registered)
 
     return webhook_ids

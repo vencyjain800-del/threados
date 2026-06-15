@@ -17,6 +17,7 @@ dependencies = [
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.2.0",
+    "pytest-httpx>=0.30.0",
     "ruff>=0.4.7",
     "mypy>=1.10.0",
 ]

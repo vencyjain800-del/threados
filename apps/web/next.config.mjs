@@ -1,12 +1,10 @@
-import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
-const nextConfig: NextConfig = {
-  // The API lives on a separate origin in all envs.
-  // Direct browser calls go through the typed API client in lib/api-client.ts.
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: process.env.API_URL ?? "http://localhost:8000",
   },
-  // Security headers (production-grade from day one)
   async headers() {
     return [
       {
@@ -26,4 +24,9 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  silent: true,
+  telemetry: false,
+  sourcemaps: { disable: true },
+  webpack: { treeshake: { removeDebugLogging: true } },
+});

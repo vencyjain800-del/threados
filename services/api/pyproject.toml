@@ -17,6 +17,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "sentry-sdk[fastapi]>=2.5.0",
     "structlog>=24.2.0",
+    "rq>=1.16.0",
 ]
 
 [tool.uv]

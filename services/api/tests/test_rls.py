@@ -18,15 +18,15 @@ Architecture notes
   state from _set_tenant() never leaks into subsequent tests.
 """
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.catalogue import Product, Variant
-from app.models.orders import Order, OrderLineItem
-from app.models.tenancy import Brand, BrandUser, User, UserRole
+from app.models.catalogue import Product
+from app.models.orders import Order
 from tests.conftest import make_brand, make_brand_user, make_user
 
 
@@ -90,7 +90,7 @@ async def test_brand_b_cannot_see_brand_a_orders(db: AsyncSession, two_brands):
     order_a = Order(
         brand_id=brand_a.id,
         shopify_id=12345,
-        ordered_at=__import__("datetime").datetime.utcnow(),
+        ordered_at=datetime.now(tz=UTC),
     )
     db.add(order_a)
     await db.flush()

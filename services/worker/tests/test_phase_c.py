@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -177,7 +177,7 @@ def test_run_inventory_snapshot_passes_brand_id_and_date() -> None:
 
 def test_run_inventory_snapshot_snap_date_is_today_utc() -> None:
     """snap_date is today in UTC, not local time."""
-    from datetime import date, timezone
+    from datetime import date
     db = _make_db_session(rowcount=0)
 
     fixed_now = datetime(2024, 12, 31, 23, 45, 0, tzinfo=timezone.utc)
@@ -386,7 +386,6 @@ def test_aggregation_enqueue_failure_does_not_raise() -> None:
 
 def test_aggregation_module_imports_cleanly() -> None:
     """worker.jobs.aggregation can be imported without side effects."""
-    import importlib
     import worker.jobs.aggregation as mod
     assert hasattr(mod, "run_aggregation")
     assert hasattr(mod, "run_inventory_snapshot")

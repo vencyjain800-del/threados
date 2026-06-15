@@ -1,15 +1,15 @@
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
-from app.models.tenancy import BrandUser, Session as DbSession, User
-
+from app.models.tenancy import BrandUser, User
+from app.models.tenancy import Session as DbSession
 
 TOKEN_BYTES = 32
 
@@ -29,7 +29,7 @@ async def create_session(
 ) -> str:
     token = _generate_token()
     token_hash = _hash_token(token)
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.session_ttl_hours)
+    expires_at = datetime.now(UTC) + timedelta(hours=settings.session_ttl_hours)
 
     session = DbSession(
         user_id=user_id,
@@ -49,7 +49,7 @@ async def verify_session(db: AsyncSession, token: str) -> DbSession | None:
     after this DB session closes — no lazy loading attempted on a dead connection.
     """
     token_hash = _hash_token(token)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     result = await db.execute(
         select(DbSession)

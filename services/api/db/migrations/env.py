@@ -4,13 +4,13 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 from sqlalchemy.engine import Connection
 
-from app.db.base import Base
 import app.models  # noqa: F401 — ensure all models are registered
 
 # Import settings so that .env is loaded via pydantic-settings.
 # os.environ.get() cannot be used here because pydantic-settings reads .env
 # into the Settings object, not into os.environ.
 from app.config import settings
+from app.db.base import Base
 
 config = context.config
 

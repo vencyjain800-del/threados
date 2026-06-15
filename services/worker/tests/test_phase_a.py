@@ -13,15 +13,11 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from worker.shopify.schemas import (
-    CollectionRecord,
-    InventoryLevelRecord,
     OrderRecord,
     ProductRecord,
     VariantRecord,
@@ -160,8 +156,6 @@ def test_parse_order_produces_order_record() -> None:
 
 def test_sync_module_imports_public_parsers() -> None:
     """sync.py must use parse_product / parse_order (not the old underscore names)."""
-    import importlib
-    import types
     import worker.jobs.sync as sync_mod
 
     # Verify the imported names are the public versions

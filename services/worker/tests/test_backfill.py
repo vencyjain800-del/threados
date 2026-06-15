@@ -20,15 +20,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from worker.shopify.schemas import (
-    CollectRecord,
     CollectionRecord,
-    InventoryLevelRecord,
-    LocationRecord,
     OrderLineItemRecord,
     OrderRecord,
     ProductRecord,

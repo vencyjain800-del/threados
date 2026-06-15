@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -134,9 +134,9 @@ def test_incremental_happy_path_with_since(
     with (
         patch("worker.jobs.sync._sync_products", return_value=sp["_sync_products"]) as m_prods,
         patch("worker.jobs.sync._sync_collections", return_value=sp["_sync_collections"]) as m_cols,
-        patch("worker.jobs.sync._sync_product_collections") as m_pc,
+        patch("worker.jobs.sync._sync_product_collections") as _m_pc,
         patch("worker.jobs.sync._sync_orders", return_value=5) as m_orders,
-        patch("worker.jobs.sync._sync_inventory", return_value=12) as m_inv,
+        patch("worker.jobs.sync._sync_inventory", return_value=12) as _m_inv,
     ):
         run_incremental(str(BRAND_ID), str(SYNC_RUN_ID))
 

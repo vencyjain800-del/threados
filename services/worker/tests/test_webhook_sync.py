@@ -30,19 +30,10 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
-from decimal import Decimal
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from worker.shopify.schemas import (
-    CollectionRecord,
-    OrderLineItemRecord,
-    OrderRecord,
-    ProductRecord,
-    VariantRecord,
-)
 
 BRAND_ID = uuid.UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
 SYNC_RUN_ID = uuid.UUID("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")

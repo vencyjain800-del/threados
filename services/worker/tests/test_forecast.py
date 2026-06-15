@@ -34,7 +34,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

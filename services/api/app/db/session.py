@@ -1,8 +1,8 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
 
@@ -48,13 +48,12 @@ async def tenant_session(brand_id: str) -> AsyncGenerator[AsyncSession, None]:
     Uses the runtime role (threados_app), which is subject to full RLS.
     SET LOCAL is transaction-scoped — safe with PgBouncer in transaction-pooling mode.
     """
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            await session.execute(
-                text("SET LOCAL app.current_brand = :brand_id"),
-                {"brand_id": brand_id},
-            )
-            yield session
+    async with AsyncSessionLocal() as session, session.begin():
+        await session.execute(
+            text("SET LOCAL app.current_brand = :brand_id"),
+            {"brand_id": brand_id},
+        )
+        yield session
 
 
 @asynccontextmanager
@@ -66,6 +65,5 @@ async def system_session() -> AsyncGenerator[AsyncSession, None]:
     Use ONLY for: session verification, signup, login, logout, switch-brand.
     Never use for tenant data queries (orders, products, etc.).
     """
-    async with _AuthSessionLocal() as session:
-        async with session.begin():
-            yield session
+    async with _AuthSessionLocal() as session, session.begin():
+        yield session

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -105,7 +105,7 @@ def test_order_schema_instantiation() -> None:
     o = OrderSchema(
         id=uuid.uuid4(),
         shopify_id=555,
-        ordered_at=datetime.now(timezone.utc),
+        ordered_at=datetime.now(UTC),
         financial_status="paid",
         channel="web",
         discount_total=Decimal("0"),
@@ -129,7 +129,7 @@ def test_sync_run_schema_instantiation() -> None:
         error=None,
         started_at=None,
         finished_at=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     assert r.entities["products"] == 10
 
@@ -140,7 +140,7 @@ def test_inventory_schemas_instantiation() -> None:
         variant_id=uuid.uuid4(),
         location_id=301,
         available=50,
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(UTC),
     )
     assert lvl.available == 50
 
@@ -357,7 +357,7 @@ def _make_order_orm() -> MagicMock:
     o.id = uuid.uuid4()
     o.brand_id = BRAND_ID
     o.shopify_id = 999
-    o.ordered_at = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    o.ordered_at = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
     o.financial_status = "paid"
     o.channel = "web"
     o.discount_total = Decimal("0")
@@ -437,7 +437,7 @@ def _make_inv_level_orm() -> MagicMock:
     il.variant_id = uuid.uuid4()
     il.location_id = 301
     il.available = 50
-    il.updated_at = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    il.updated_at = datetime(2024, 6, 1, tzinfo=UTC)
     return il
 
 
@@ -507,7 +507,7 @@ def _make_sync_run_orm(kind: str = "backfill") -> MagicMock:
     r.error = None
     r.started_at = None
     r.finished_at = None
-    r.created_at = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    r.created_at = datetime(2024, 6, 1, tzinfo=UTC)
     return r
 
 

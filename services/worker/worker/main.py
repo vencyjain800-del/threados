@@ -24,9 +24,8 @@ import os
 import sentry_sdk
 import structlog
 from rq import Worker
-from rq.job import Retry
 
-from worker.queues import get_redis, get_default_queue
+from worker.queues import get_redis
 
 logging.basicConfig()
 
@@ -37,6 +36,8 @@ structlog.configure(
         )
     ),
 )
+
+log = structlog.get_logger()
 
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:

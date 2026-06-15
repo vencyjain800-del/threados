@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.session import tenant_session
 from app.deps.deps import require_brand
-from app.models.catalogue import Collection, Product, ProductCollection, Variant
+from app.models.catalogue import Collection, Product, ProductCollection
 from app.models.inventory import InventoryLevel
 from app.models.tenancy import Session as AuthSession
 from app.schemas.catalogue import (

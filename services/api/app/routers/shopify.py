@@ -1,16 +1,14 @@
 import asyncio
 import json
-import uuid
-from datetime import datetime, timezone
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
 
-from app.db.session import system_session
+from app.db.session import system_session, tenant_session
 from app.deps.deps import get_redis, get_redis_pool, require_auth
 from app.models.audit import AuditLog
 from app.models.shopify import ShopifyConnection, SyncRun, SyncStatus
@@ -40,8 +38,8 @@ router = APIRouter(prefix="/shopify", tags=["shopify"])
 async def install(
     shop: str,
     session: Annotated[DbSession, Depends(require_auth)],
-    redis: Annotated[aioredis.Redis, Depends(get_redis)],
-):
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],  # type: ignore[type-arg]
+) -> RedirectResponse:
     if not validate_shop_domain(shop):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid shop domain")
 
@@ -58,16 +56,19 @@ async def callback(
     hmac: str,
     timestamp: str,
     session: Annotated[DbSession, Depends(require_auth)],
-    redis: Annotated[aioredis.Redis, Depends(get_redis)],
+    redis: Annotated[aioredis.Redis, Depends(get_redis)],  # type: ignore[type-arg]
     request: Request,
-):
+) -> RedirectResponse:
     params = dict(request.query_params)
 
     if not validate_shop_domain(shop):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid shop domain")
 
     if not verify_hmac(params):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="HMAC verification failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="HMAC verification failed",
+        )
 
     if not await verify_state(redis, state, shop):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="State mismatch")
@@ -127,7 +128,9 @@ async def callback(
 
 
 @router.get("/status")
-async def connection_status(session: Annotated[DbSession, Depends(require_auth)]):
+async def connection_status(
+    session: Annotated[DbSession, Depends(require_auth)],
+) -> dict[str, Any]:
     brand_id = session.brand_id
     if not brand_id:
         return {"connected": False}
@@ -136,7 +139,7 @@ async def connection_status(session: Annotated[DbSession, Depends(require_auth)]
         result = await db.execute(
             select(ShopifyConnection).where(
                 ShopifyConnection.brand_id == brand_id,
-                ShopifyConnection.uninstalled_at == None,  # noqa: E711
+                ShopifyConnection.uninstalled_at.is_(None),
             )
         )
         conn = result.scalar_one_or_none()
@@ -144,12 +147,101 @@ async def connection_status(session: Annotated[DbSession, Depends(require_auth)]
     if not conn:
         return {"connected": False}
 
+    # Fetch sync summary from the most recent succeeded run.
+    # Uses tenant_session so RLS scopes to this brand; falls back gracefully on error.
+    last_sync_at: datetime | None = None
+    products_imported: int | None = None
+    orders_imported: int | None = None
+    sync_state: str = "idle"
+
+    try:
+        async with tenant_session(str(brand_id)) as db:
+            # Most recent succeeded run — provides entity counts and timestamp
+            succeeded = await db.execute(
+                select(SyncRun)
+                .where(
+                    SyncRun.brand_id == brand_id,
+                    SyncRun.status == SyncStatus.succeeded,
+                )
+                .order_by(SyncRun.finished_at.desc())
+                .limit(1)
+            )
+            last_run = succeeded.scalar_one_or_none()
+
+            if last_run:
+                last_sync_at = last_run.finished_at
+                entities = last_run.entities or {}
+                products_imported = entities.get("products")
+                orders_imported = entities.get("orders")
+
+            # Check if any run is currently active (queued or running)
+            active = await db.execute(
+                select(func.count())
+                .select_from(SyncRun)
+                .where(
+                    SyncRun.brand_id == brand_id,
+                    SyncRun.status.in_([SyncStatus.queued, SyncStatus.running]),
+                )
+            )
+            active_count: int = active.scalar_one()
+            if active_count > 0:
+                sync_state = "syncing"
+            elif last_run:
+                sync_state = "synced"
+    except Exception:
+        pass  # Non-critical — status still returns connected=True
+
     return {
         "connected": True,
         "shop_domain": conn.shop_domain,
         "scopes": conn.scopes,
         "installed_at": conn.installed_at,
+        "last_sync_at": last_sync_at,
+        "products_imported": products_imported,
+        "orders_imported": orders_imported,
+        "sync_state": sync_state,
     }
+
+
+@router.delete("/disconnect")
+async def disconnect(
+    session: Annotated[DbSession, Depends(require_auth)],
+) -> dict[str, Any]:
+    """Disconnect Shopify store for the current brand.
+
+    Marks the connection as uninstalled and deregisters the recurring sync schedule.
+    Does not revoke the access token on Shopify's side — the merchant must do that
+    from their Shopify admin if desired.
+    """
+    brand_id = session.brand_id
+    if not brand_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No active brand")
+
+    async with system_session() as db:
+        result = await db.execute(
+            select(ShopifyConnection).where(
+                ShopifyConnection.brand_id == brand_id,
+                ShopifyConnection.uninstalled_at.is_(None),
+            )
+        )
+        conn = result.scalar_one_or_none()
+        if not conn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No active Shopify connection",
+            )
+
+        conn.uninstalled_at = datetime.now(UTC)
+
+        db.add(AuditLog(
+            brand_id=brand_id,
+            user_id=session.user_id,
+            action="shopify.disconnected",
+            target=conn.shop_domain,
+        ))
+
+    await asyncio.to_thread(enqueue_deregister_schedule, str(brand_id))
+    return {"disconnected": True}
 
 
 @router.post("/webhooks/{topic}")
@@ -181,7 +273,7 @@ async def webhook_receiver(topic: str, request: Request) -> dict[str, bool]:
             )
             conn = result.scalar_one_or_none()
             if conn:
-                conn.uninstalled_at = datetime.now(timezone.utc)
+                conn.uninstalled_at = datetime.now(UTC)
                 uninstalled_brand_id = str(conn.brand_id)
         # Cancel the pending recurring incremental sync for this brand
         if uninstalled_brand_id is not None:

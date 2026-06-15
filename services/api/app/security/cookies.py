@@ -1,4 +1,4 @@
-from fastapi import Response, Request
+from fastapi import Request, Response
 
 from app.config import settings
 

@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.session import tenant_session
 from app.deps.deps import require_brand
-from app.models.orders import Order, OrderLineItem
+from app.models.orders import Order
 from app.models.tenancy import Session as AuthSession
 from app.schemas.orders import LineItemSchema, OrderListResponse, OrderSchema
 

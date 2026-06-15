@@ -1,11 +1,11 @@
+import enum
 import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import BYTEA, UUID
 from sqlalchemy.dialects.postgresql import ENUM as PgEnum
-from sqlalchemy.dialects.postgresql import UUID, BYTEA
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-import enum
 
 from app.db.base import Base
 

@@ -61,6 +61,10 @@ export interface ShopifyStatusResponse {
   shop_domain?: string;
   scopes?: string;
   installed_at?: string;
+  last_sync_at?: string | null;
+  products_imported?: number | null;
+  orders_imported?: number | null;
+  sync_state?: "idle" | "syncing" | "synced";
 }
 
 // ── Catalogue ─────────────────────────────────────────────────────────────────

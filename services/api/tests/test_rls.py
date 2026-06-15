@@ -24,9 +24,8 @@ import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.catalogue import Product, Variant
-from app.models.orders import Order, OrderLineItem
-from app.models.tenancy import Brand, BrandUser, User, UserRole
+from app.models.catalogue import Product
+from app.models.orders import Order
 from tests.conftest import make_brand, make_brand_user, make_user
 
 

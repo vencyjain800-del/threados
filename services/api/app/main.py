@@ -1,5 +1,5 @@
-import structlog
 import sentry_sdk
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,10 +7,9 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.config import settings
-from app.routers import auth, health, shopify
-from app.routers import catalogue, inventory, orders
-from app.routers import sync as sync_router
+from app.routers import auth, catalogue, health, inventory, orders, shopify
 from app.routers import forecasts as forecasts_router
+from app.routers import sync as sync_router
 
 structlog.configure(
     wrapper_class=structlog.make_filtering_bound_logger(

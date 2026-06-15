@@ -52,7 +52,7 @@ async function request<T>(
       ...(options?.headers ?? {}),
     },
     credentials: "include", // send session cookie cross-origin
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body !== undefined ? JSON.stringify(body) : null,
     ...options,
   });
 
@@ -88,6 +88,8 @@ export const auth = {
 
 export const shopify = {
   status: () => request<ShopifyStatusResponse>("GET", "/shopify/status"),
+  disconnect: () => request<{ disconnected: boolean }>("DELETE", "/shopify/disconnect"),
+  installUrl: (shop: string) => `${API_URL}/shopify/install?shop=${encodeURIComponent(shop)}`,
 };
 
 // ── Catalogue ─────────────────────────────────────────────────────────────────

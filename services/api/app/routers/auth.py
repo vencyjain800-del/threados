@@ -1,14 +1,13 @@
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import system_session
 from app.deps.deps import require_auth
 from app.models.audit import AuditLog
-from app.models.tenancy import Brand, BrandUser, Session as DbSession, User, UserRole
+from app.models.tenancy import Brand, BrandUser, User, UserRole
+from app.models.tenancy import Session as DbSession
 from app.schemas.auth import (
     BrandResponse,
     LoginRequest,

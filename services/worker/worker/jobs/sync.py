@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import structlog
@@ -45,7 +45,7 @@ from worker.db.session import worker_session
 from worker.queues import get_default_queue
 from worker.shopify import ShopifyClient, decrypt_token
 from worker.shopify.client import parse_order, parse_product
-from worker.shopify.schemas import CollectionRecord, InventoryLevelRecord, ProductRecord
+from worker.shopify.schemas import CollectionRecord, InventoryLevelRecord
 from worker.shopify.upsert import (
     replace_order_line_items,
     upsert_collections,
@@ -103,8 +103,14 @@ def run_backfill(brand_id: str, sync_run_id: str) -> None:
             # Phase 3: product-collection memberships (depends on both maps)
             _sync_product_collections(_bid, client, product_id_map, collection_id_map)
 
-            # Phase 4: orders + line items (depends on variant map for line items)
-            counts["orders"] = _sync_orders(_bid, client, variant_id_map)
+            # Phase 4: orders + line items — 90-day window only.
+            # Shopify returns all orders when no filter is set; restrict to 90
+            # days so a large store does not pull years of history on first connect.
+            # The read_all_orders scope is required for orders older than 60 days.
+            ninety_days_ago = datetime.now(tz=timezone.utc) - timedelta(days=90)
+            counts["orders"] = _sync_orders(
+                _bid, client, variant_id_map, created_at_min=ninety_days_ago
+            )
 
             # Phase 5: inventory levels (depends on inv_item_map from Phase 1)
             counts["inventory_levels"] = _sync_inventory(_bid, client, inv_item_map)
@@ -434,21 +440,26 @@ def _sync_orders(
     client: ShopifyClient,
     variant_id_map: dict[int, uuid.UUID],
     *,
+    created_at_min: datetime | None = None,
     updated_at_min: datetime | None = None,
 ) -> int:
     """Sync orders and their line items.
 
     Parameters
     ----------
+    created_at_min:
+        If set, only orders *created* at or after this datetime are fetched.
+        Used by backfill to enforce the 90-day history window.
     updated_at_min:
         If set, only orders *updated* since this datetime are fetched.  Catches
         both new orders and orders whose status changed (paid, fulfilled, refunded).
+        Used by incremental sync.
 
     Returns total order count.
     """
     order_count = 0
 
-    for page in client.iter_orders(updated_at_min=updated_at_min):
+    for page in client.iter_orders(created_at_min=created_at_min, updated_at_min=updated_at_min):
         with worker_session() as db:
             o_map = upsert_orders(db, brand_id, page)
             replace_order_line_items(db, brand_id, o_map, variant_id_map, page)
